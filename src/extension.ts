@@ -8,7 +8,7 @@ let client: Client | null = null;
 let cycleInterval: ReturnType<typeof setInterval> | undefined;
 let reconnectTimeout: ReturnType<typeof setTimeout> | undefined;
 let currentLanguage: string | undefined;
-let startTimestamp: Date;
+let startTimestamp!: Date;
 
 function setPresence(): void {
   if (!client?.isConnected) return;
@@ -30,6 +30,7 @@ async function connectToDiscord(): Promise<void> {
   client = new Client({ clientId: CLIENT_ID });
 
   client.on('ready', () => {
+    if (cycleInterval) clearInterval(cycleInterval);
     setPresence();
     cycleInterval = setInterval(setPresence, 15_000);
   });
@@ -74,6 +75,6 @@ export function activate(context: vscode.ExtensionContext): void {
 export function deactivate(): void {
   if (cycleInterval) clearInterval(cycleInterval);
   if (reconnectTimeout) clearTimeout(reconnectTimeout);
-  client?.destroy();
+  client?.destroy().catch(() => {});
   client = null;
 }
