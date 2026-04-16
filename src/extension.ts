@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import { Client } from '@xhayper/discord-rpc';
 import { getRandomWord } from './words';
 
-const CLIENT_ID = 'REPLACE_WITH_YOUR_CLIENT_ID';
+const CLIENT_ID = '1494346699861397636';
 
 let client: Client | null = null;
 let cycleInterval: ReturnType<typeof setInterval> | undefined;
@@ -18,6 +18,8 @@ function setPresence(): void {
     largeImageKey: 'claude-logo',
     largeImageText: 'Claude',
     startTimestamp,
+    type: 0,
+    statusDisplayType: 2,
   });
 }
 
