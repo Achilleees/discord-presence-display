@@ -4,6 +4,10 @@ src/**
 test/**
 docs/**
 dist/**/*.map
+dist/**/*.d.ts
 tsconfig.json
 vitest.config.ts
 .gitignore
+package-lock.json
+ROADMAP.md
+assets/logo.html

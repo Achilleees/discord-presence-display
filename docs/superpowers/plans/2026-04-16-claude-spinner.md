@@ -160,8 +160,8 @@ import { describe, it, expect } from 'vitest';
 import { WORDS, getRandomWord } from '../src/words';
 
 describe('WORDS', () => {
-  it('contains exactly 183 words', () => {
-    expect(WORDS).toHaveLength(183);
+  it('contains exactly 187 words', () => {
+    expect(WORDS).toHaveLength(187);
   });
 
   it('has no duplicates', () => {
@@ -395,7 +395,7 @@ Expected: All 4 tests PASS.
 
 ```bash
 git add src/words.ts test/words.test.ts
-git commit -m "feat: add spinner word list with 183 words"
+git commit -m "feat: add spinner word list with 187 words"
 ```
 
 ---

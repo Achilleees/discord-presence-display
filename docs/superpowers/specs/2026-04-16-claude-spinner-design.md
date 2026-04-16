@@ -2,11 +2,11 @@
 
 ## Overview
 
-A VS Code extension that sets Discord Rich Presence to a randomly cycling word from Claude Code's 183 spinner words. Minimal, zero-config, publishable on the VS Code Marketplace.
+A VS Code extension that sets Discord Rich Presence to a randomly cycling word from Claude Code's 187 spinner words. Minimal, zero-config, publishable on the VS Code Marketplace.
 
 ## Requirements
 
-- Cycle through 183 spinner words as Discord Rich Presence details
+- Cycle through 187 spinner words as Discord Rich Presence details
 - Show current programming language on profile click
 - Show elapsed coding time
 - Auto-connect/disconnect with VS Code lifecycle

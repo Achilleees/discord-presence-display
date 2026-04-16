@@ -13,7 +13,9 @@
     "onStartupFinished"
   ],
   "main": "./dist/extension.js",
+  "icon": "assets/icon.png",
   "scripts": {
+    "vscode:prepublish": "npm run build",
     "build": "tsc",
     "watch": "tsc --watch",
     "test": "vitest run",
