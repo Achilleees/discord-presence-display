@@ -3,6 +3,7 @@
   "displayName": "Claude Spinner",
   "description": "Displays rotating Claude Code spinner words as your Discord Rich Presence",
   "version": "0.1.0",
+  "license": "MIT",
   "engines": {
     "vscode": "^1.85.0"
   },
