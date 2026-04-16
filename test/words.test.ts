@@ -2,8 +2,8 @@ import { describe, it, expect } from 'vitest';
 import { WORDS, getRandomWord } from '../src/words';
 
 describe('WORDS', () => {
-  it('contains exactly 183 words', () => {
-    expect(WORDS).toHaveLength(183);
+  it('contains exactly 187 words', () => {
+    expect(WORDS).toHaveLength(187);
   });
 
   it('has no duplicates', () => {

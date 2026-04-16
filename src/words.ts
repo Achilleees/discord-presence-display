@@ -1,5 +1,6 @@
 export const WORDS = [
   'Accomplishing',
+  'Actioning',
   'Actualizing',
   'Architecting',
   'Baking',
@@ -23,6 +24,7 @@ export const WORDS = [
   'Catapulting',
   'Cerebrating',
   'Channeling',
+  'Channelling',
   'Choreographing',
   'Churning',
   'Clauding',
@@ -48,6 +50,8 @@ export const WORDS = [
   'Doing',
   'Doodling',
   'Drizzling',
+  'Ebbing',
+  'Effecting',
   'Elucidating',
   'Embellishing',
   'Enchanting',
