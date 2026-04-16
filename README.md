@@ -1,4 +1,4 @@
-# Claude Spinner
+# Claude Spinner for Discord
 
 **Your Discord status, now Flibbertigibbeting.**
 

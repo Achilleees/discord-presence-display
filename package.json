@@ -1,9 +1,21 @@
 {
   "name": "discord-presence-display",
-  "displayName": "Claude Spinner",
+  "displayName": "Claude Spinner for Discord",
   "description": "Displays rotating Claude Code spinner words as your Discord Rich Presence",
   "version": "0.1.0",
   "license": "MIT",
+  "publisher": "Achilleees",
+  "author": {
+    "name": "Achilleees",
+    "url": "https://github.com/Achilleees"
+  },
+  "keywords": [
+    "discord",
+    "rich-presence",
+    "status",
+    "spinner",
+    "claude"
+  ],
   "engines": {
     "vscode": "^1.85.0"
   },
