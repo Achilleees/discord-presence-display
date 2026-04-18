@@ -2,8 +2,8 @@ import * as vscode from 'vscode';
 import * as discord from './discord-client';
 import { readConfig, onConfigChange, type Config } from './config';
 import { createState, type FocusContext, type State } from './state';
-import { buildPool, getNextWord } from './words';
-import { buildPresencePayload } from './presence';
+import { buildPresencePayload, pickCandidateWord } from './presence';
+import { computeConfigTransition } from './transitions';
 import { registerCommands } from './commands';
 
 const CLIENT_ID = '1494346699861397636';
@@ -19,7 +19,7 @@ let reconnectTimeout: ReturnType<typeof setTimeout> | undefined;
 let idleTimeout: ReturnType<typeof setTimeout> | undefined;
 let pushDebounce: ReturnType<typeof setTimeout> | undefined;
 let lastInteractedSource: 'editor' | 'terminal' = 'editor';
-let activeConnect: Promise<void> | undefined;
+let currentClientId: symbol | undefined;
 
 function getWorkspaceName(): string | undefined {
   const folders = vscode.workspace.workspaceFolders;
@@ -27,36 +27,32 @@ function getWorkspaceName(): string | undefined {
   return folders[0]?.name;
 }
 
-function computeFocusContext(): FocusContext {
-  const activeTab = vscode.window.tabGroups?.activeTabGroup?.activeTab;
-  if (activeTab?.input instanceof vscode.TabInputTextDiff) return 'diff';
+function isDiffTab(tab: vscode.Tab | undefined): boolean {
+  if (!tab) return false;
+  if (tab.input instanceof vscode.TabInputTextDiff) return true;
+  const MultiDiffCtor = (vscode as unknown as { TabInputTextMultiDiff?: new (...a: unknown[]) => unknown })
+    .TabInputTextMultiDiff;
+  if (MultiDiffCtor && tab.input instanceof MultiDiffCtor) return true;
+  return false;
+}
 
-  if (lastInteractedSource === 'terminal' && vscode.window.activeTerminal) {
-    return 'terminal';
-  }
+function computeFocusContext(): FocusContext {
+  if (isDiffTab(vscode.window.tabGroups?.activeTabGroup?.activeTab)) return 'diff';
+  if (lastInteractedSource === 'terminal' && vscode.window.activeTerminal) return 'terminal';
   if (vscode.window.activeTextEditor) return 'editor';
   if (vscode.window.activeTerminal) return 'terminal';
   return 'none';
-}
-
-function pickCandidateWord(): string | undefined {
-  if (!config || !state) return undefined;
-  if (!config.cycleWords && state.pinnedWord) return state.pinnedWord;
-
-  const pool = buildPool({
-    wordRarity: config.wordRarity,
-    timeBasedPools: config.timeBasedPools,
-    customWords: config.customWords,
-    elapsedMs: Date.now() - state.startTimestamp.getTime(),
-  });
-  return getNextWord(pool, state.recentWords.values());
 }
 
 async function pushImmediate(): Promise<void> {
   if (!state || !config) return;
   if (!discord.isReady()) return;
 
-  const word = pickCandidateWord();
+  // Re-read the active editor's language every push so a mid-session
+  // "Change Language Mode" picks up without requiring an editor switch.
+  state.currentLanguage = vscode.window.activeTextEditor?.document.languageId ?? state.currentLanguage;
+
+  const word = pickCandidateWord(state, config, Date.now());
   if (!word) return;
 
   const payload = buildPresencePayload(state, config, word);
@@ -65,15 +61,21 @@ async function pushImmediate(): Promise<void> {
     return;
   }
 
-  // Commit the word to recent/pinned state only after we know it's being used.
   state.recentWords.add(word);
   if (!config.cycleWords) state.pinnedWord = word;
 
   await discord.pushPresence(payload);
 }
 
+function clearPushDebounce(): void {
+  if (pushDebounce) {
+    clearTimeout(pushDebounce);
+    pushDebounce = undefined;
+  }
+}
+
 function schedulePush(): void {
-  if (pushDebounce) clearTimeout(pushDebounce);
+  clearPushDebounce();
   pushDebounce = setTimeout(() => {
     pushDebounce = undefined;
     void pushImmediate();
@@ -131,30 +133,30 @@ function scheduleReconnect(): void {
 
 async function connectFlow(): Promise<void> {
   if (!config?.enabled) return;
-  if (activeConnect) return;
 
-  const run = (async () => {
-    try {
-      await discord.connect(CLIENT_ID, {
-        onReady: () => {
-          if (!config?.enabled || !state) return;
-          stopCycle();
-          void pushImmediate();
-          startCycle();
-        },
-        onDisconnected: () => {
-          stopCycle();
-          scheduleReconnect();
-        },
-      });
-    } catch {
-      scheduleReconnect();
-    }
-  })();
-  activeConnect = run.finally(() => {
-    if (activeConnect === run) activeConnect = undefined;
-  });
-  await activeConnect;
+  const myId = Symbol('client');
+  currentClientId = myId;
+  const isCurrent = () => currentClientId === myId;
+
+  try {
+    await discord.connect(CLIENT_ID, {
+      onReady: () => {
+        if (!isCurrent()) return;
+        if (!config?.enabled || !state) return;
+        clearReconnect();
+        stopCycle();
+        void pushImmediate();
+        startCycle();
+      },
+      onDisconnected: () => {
+        if (!isCurrent()) return;
+        stopCycle();
+        scheduleReconnect();
+      },
+    });
+  } catch {
+    if (isCurrent()) scheduleReconnect();
+  }
 }
 
 function togglePaused(): void {
@@ -215,39 +217,34 @@ function handleConfigChange(next: Config): void {
   config = next;
   if (!state) return;
 
-  if (!next.enabled) {
+  const transition = computeConfigTransition(prev, next, {
+    isIdle: state.isIdle,
+    idleTimerArmed: idleTimeout !== undefined,
+  });
+
+  if (transition.shutdown) {
+    currentClientId = undefined;
     stopCycle();
     clearReconnect();
     clearIdleTimer();
+    clearPushDebounce();
     void discord.disconnect();
     return;
   }
 
-  if (prev && !prev.enabled && next.enabled) {
+  if (transition.reconnect) {
     void connectFlow();
     return;
   }
 
-  if (!next.cycleWords) {
-    state.pinnedWord = undefined;
-  }
-
-  if (prev && prev.cycleSpeed !== next.cycleSpeed) {
-    startCycle();
-  } else if (prev && prev.cycleWords !== next.cycleWords) {
-    startCycle();
-  }
-
-  if (prev && prev.idleThresholdMinutes !== next.idleThresholdMinutes && idleTimeout) {
+  if (transition.clearPinnedWord) state.pinnedWord = undefined;
+  if (transition.restartCycle) startCycle();
+  if (transition.restartIdleTimer) {
     clearIdleTimer();
     idleTimeout = setTimeout(engageIdle, next.idleThresholdMinutes * 60_000);
   }
-
-  if (prev && prev.idleBehavior !== next.idleBehavior && state.isIdle) {
-    applyIdleBehavior();
-  }
-
-  schedulePush();
+  if (transition.applyIdleBehavior) applyIdleBehavior();
+  if (transition.schedulePush) schedulePush();
 }
 
 export function activate(context: vscode.ExtensionContext): void {
@@ -313,18 +310,15 @@ export function activate(context: vscode.ExtensionContext): void {
     void connectFlow();
   }
 
-  // If VS Code activated while unfocused, arm the idle timer now.
   onWindowStateChange();
 }
 
 export function deactivate(): void {
+  currentClientId = undefined;
   stopCycle();
   clearReconnect();
   clearIdleTimer();
-  if (pushDebounce) {
-    clearTimeout(pushDebounce);
-    pushDebounce = undefined;
-  }
+  clearPushDebounce();
   void discord.disconnect();
   state = undefined;
   config = undefined;

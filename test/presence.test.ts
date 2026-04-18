@@ -4,10 +4,12 @@ import {
   buildStateLine,
   getLanguageIconKey,
   getLanguageDisplayName,
+  pickCandidateWord,
 } from '../src/presence';
 import type { Config } from '../src/config';
 import type { State } from '../src/state';
 import { createState } from '../src/state';
+import { WORDS } from '../src/words';
 
 function baseConfig(overrides: Partial<Config> = {}): Config {
   return {
@@ -94,14 +96,34 @@ describe('buildStateLine', () => {
     expect(buildStateLine(state, baseConfig())).toBe('Reviewing in TypeScript');
   });
 
-  it('returns "In the terminal" regardless of language', () => {
-    const state = baseState({ focusContext: 'terminal', currentLanguage: undefined });
-    expect(buildStateLine(state, baseConfig())).toBe('In the terminal');
+  it('returns "In the terminal" whether or not a language is set', () => {
+    const noLang = baseState({ focusContext: 'terminal', currentLanguage: undefined });
+    expect(buildStateLine(noLang, baseConfig())).toBe('In the terminal');
+    const withLang = baseState({ focusContext: 'terminal', currentLanguage: 'typescript' });
+    expect(buildStateLine(withLang, baseConfig())).toBe('In the terminal');
   });
 
-  it('appends workspace when showWorkspace=true', () => {
+  it('appends workspace to rule 6 (Working in X)', () => {
     const line = buildStateLine(baseState(), baseConfig({ showWorkspace: true }));
     expect(line).toBe('Working in TypeScript — my-project');
+  });
+
+  it('appends workspace to rule 2 (Debugging in X)', () => {
+    const state = baseState({ debugActive: true });
+    const line = buildStateLine(state, baseConfig({ showWorkspace: true }));
+    expect(line).toBe('Debugging in TypeScript — my-project');
+  });
+
+  it('appends workspace to rule 3 (Reviewing in X)', () => {
+    const state = baseState({ focusContext: 'diff' });
+    const line = buildStateLine(state, baseConfig({ showWorkspace: true }));
+    expect(line).toBe('Reviewing in TypeScript — my-project');
+  });
+
+  it('appends workspace to rule 4 (In the terminal)', () => {
+    const state = baseState({ focusContext: 'terminal' });
+    const line = buildStateLine(state, baseConfig({ showWorkspace: true }));
+    expect(line).toBe('In the terminal — my-project');
   });
 
   it('does not append workspace to terminal state when name missing', () => {
@@ -110,7 +132,7 @@ describe('buildStateLine', () => {
     expect(line).toBe('In the terminal');
   });
 
-  it('falls through to plain state when debug+no language', () => {
+  it('omits state line when debug is active but language is unknown', () => {
     const state = baseState({ debugActive: true, currentLanguage: undefined });
     expect(buildStateLine(state, baseConfig())).toBeUndefined();
   });
@@ -180,5 +202,39 @@ describe('buildPresencePayload', () => {
     const p = buildPresencePayload(baseState(), baseConfig(), 'Working');
     expect(p?.type).toBe(0);
     expect(p?.statusDisplayType).toBe(2);
+  });
+});
+
+describe('pickCandidateWord', () => {
+  const now = new Date('2026-04-18T12:05:00Z').getTime();
+
+  it('returns the pinned word when cycleWords=false and pinnedWord is set', () => {
+    const state = baseState({ pinnedWord: 'PinnedForever' });
+    const word = pickCandidateWord(state, baseConfig({ cycleWords: false }), now);
+    expect(word).toBe('PinnedForever');
+  });
+
+  it('ignores pinnedWord when cycleWords=true', () => {
+    const state = baseState({ pinnedWord: 'Stale' });
+    const word = pickCandidateWord(state, baseConfig({ cycleWords: true }), now);
+    expect(WORDS as readonly string[]).toContain(word);
+  });
+
+  it('picks a fresh word when cycleWords=false and pinnedWord is undefined', () => {
+    const state = baseState({ pinnedWord: undefined });
+    const word = pickCandidateWord(state, baseConfig({ cycleWords: false }), now);
+    expect(word).toBeDefined();
+    expect(word).not.toBe(undefined);
+  });
+
+  it('avoids words in the recent ring', () => {
+    const state = baseState();
+    state.recentWords.add('Thinking');
+    state.recentWords.add('Working');
+    state.recentWords.add('Crafting');
+    for (let i = 0; i < 200; i++) {
+      const word = pickCandidateWord(state, baseConfig(), now)!;
+      expect(['Thinking', 'Working', 'Crafting']).not.toContain(word);
+    }
   });
 });

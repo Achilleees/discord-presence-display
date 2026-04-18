@@ -46,7 +46,7 @@ src/
 | `presence.ts` | `buildPresencePayload(state, config)` → `SetActivity \| null` | `words.ts`, types |
 | `config.ts` | `readConfig()` → `Config`, `onConfigChange(cb)` → `Disposable` | `vscode` |
 | `commands.ts` | `registerCommands(context, deps)` → `Disposable[]` | `state`, `discord-client`, `presence` |
-| `state.ts` | `state: MutableState` singleton — `paused`, `currentLanguage`, `startTimestamp`, `recentWords` (ring buffer of last 3), `isIdle`, `debugActive`, `focusContext` | — |
+| `state.ts` | `createState(...)` factory + `State` type — `paused`, `currentLanguage`, `startTimestamp`, `recentWords` (ring buffer of last 3), `isIdle`, `debugActive`, `focusContext`, `workspaceName`, `pinnedWord`. Instance owned by `extension.ts` | — |
 | `words.ts` | `WORDS`, `getNextWord(pool, recent, opts)`, `buildPool(config, state)` | — |
 
 **Activate flow**
@@ -103,7 +103,7 @@ Registered under `contributes.configuration` in `package.json`. All live-reload 
 - `cycleSpeed` → clear + restart interval, push immediate payload
 - `idleThresholdMinutes` → reset idle timer at new threshold
 - Any display toggle → rebuild and push payload
-- `customWords`, `wordRarity`, `timeBasedPools` → no immediate push; next cycle uses new settings
+- `customWords`, `wordRarity`, `timeBasedPools` → debounced push so the new setting takes visible effect on the next tick rather than waiting a full cycle
 
 ---
 

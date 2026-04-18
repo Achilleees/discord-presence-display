@@ -188,10 +188,8 @@ export const WORDS = [
   'Zigzagging',
 ] as const;
 
-export type Word = (typeof WORDS)[number];
-
 export type Rarity = 'common' | 'uncommon' | 'rare';
-export type TimeTier = 'warming' | 'zone' | 'deep';
+type TimeTier = 'warming' | 'zone' | 'deep';
 
 const RARE_WORDS: ReadonlySet<string> = new Set<string>([
   'Flibbertigibbeting',

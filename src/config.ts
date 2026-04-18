@@ -20,7 +20,8 @@ export interface Config {
   timeBasedPools: boolean;
 }
 
-function clamp(n: number, min: number, max: number): number {
+function clamp(raw: unknown, min: number, max: number): number {
+  const n = typeof raw === 'number' ? raw : typeof raw === 'string' ? Number(raw) : NaN;
   if (!Number.isFinite(n)) return min;
   return Math.min(max, Math.max(min, n));
 }
@@ -48,7 +49,7 @@ export function readConfig(): Config {
   const cfg = vscode.workspace.getConfiguration(CONFIG_SECTION);
   return {
     enabled: cfg.get<boolean>('enabled', true),
-    cycleSpeed: clamp(cfg.get<number>('cycleSpeed', 15), 5, 120),
+    cycleSpeed: clamp(cfg.get<unknown>('cycleSpeed', 15), 5, 120),
     cycleWords: cfg.get<boolean>('cycleWords', true),
     customWords: sanitizeCustomWords(cfg.get<unknown>('customWords', [])),
     showLanguage: cfg.get<boolean>('showLanguage', true),
@@ -57,7 +58,7 @@ export function readConfig(): Config {
     showLanguageIcon: cfg.get<boolean>('showLanguageIcon', true),
     smartState: cfg.get<boolean>('smartState', true),
     idleBehavior: asIdleBehavior(cfg.get<string>('idleBehavior', 'slow')),
-    idleThresholdMinutes: clamp(cfg.get<number>('idleThresholdMinutes', 5), 1, 60),
+    idleThresholdMinutes: clamp(cfg.get<unknown>('idleThresholdMinutes', 5), 1, 60),
     wordRarity: cfg.get<boolean>('wordRarity', false),
     timeBasedPools: cfg.get<boolean>('timeBasedPools', false),
   };

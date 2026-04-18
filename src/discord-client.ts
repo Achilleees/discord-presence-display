@@ -29,6 +29,7 @@ export async function connect(clientId: string, callbacks: ClientCallbacks = {})
     await next.login();
   } catch (err) {
     if (client === next) client = null;
+    await next.destroy().catch(() => {});
     throw err;
   }
 }

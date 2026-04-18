@@ -1,6 +1,19 @@
 import type { SetActivity } from '@xhayper/discord-rpc';
 import type { Config } from './config';
 import type { State } from './state';
+import { buildPool, getNextWord } from './words';
+
+export function pickCandidateWord(state: State, config: Config, nowMs: number): string | undefined {
+  if (!config.cycleWords && state.pinnedWord) return state.pinnedWord;
+
+  const pool = buildPool({
+    wordRarity: config.wordRarity,
+    timeBasedPools: config.timeBasedPools,
+    customWords: config.customWords,
+    elapsedMs: nowMs - state.startTimestamp.getTime(),
+  });
+  return getNextWord(pool, state.recentWords.values());
+}
 
 const LARGE_IMAGE_KEY = 'vscode-spinner';
 const LARGE_IMAGE_TEXT = 'Visual Studio Code';

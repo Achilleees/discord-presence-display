@@ -40,6 +40,14 @@ describe('cycleSpeed bounds', () => {
     __setConfig({ 'claudeSpinner.cycleSpeed': 42 });
     expect(readConfig().cycleSpeed).toBe(42);
   });
+  it('coerces numeric strings (user hand-edited settings.json)', () => {
+    __setConfig({ 'claudeSpinner.cycleSpeed': '42' });
+    expect(readConfig().cycleSpeed).toBe(42);
+  });
+  it('falls back to min on non-numeric strings', () => {
+    __setConfig({ 'claudeSpinner.cycleSpeed': 'fast' });
+    expect(readConfig().cycleSpeed).toBe(5);
+  });
 });
 
 describe('idleThresholdMinutes bounds', () => {
