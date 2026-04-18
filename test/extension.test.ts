@@ -170,6 +170,54 @@ describe('idle engagement', () => {
     expect(instances[0].user?.clearActivity).toHaveBeenCalled();
   });
 
+  it('cycleSpeed change during idle "clear" does NOT resurrect presence (audit r4 3.1)', async () => {
+    vi.useFakeTimers();
+    await bootAndReady('clear');
+    __setFocused(false);
+    vi.advanceTimersByTime(60_000 + 1);
+    await Promise.resolve();
+    // Now idle+clear. Simulate a config change that would previously
+    // trigger restartCycle → startCycle → pushImmediate.
+    instances[0].user!.setActivity.mockClear();
+    __setConfig({
+      'claudeSpinner.idleThresholdMinutes': 1,
+      'claudeSpinner.idleBehavior': 'clear',
+      'claudeSpinner.cycleSpeed': 30,
+    });
+    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+    // @ts-expect-error mock module
+    (await import('vscode')).__emitConfigChange(['claudeSpinner']);
+    // Let debounced push fire
+    vi.advanceTimersByTime(1_000);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(instances[0].user?.setActivity).not.toHaveBeenCalled();
+  });
+
+  it('cycleSpeed change during idle "pause" does NOT start a cycle interval', async () => {
+    vi.useFakeTimers();
+    await bootAndReady('pause');
+    __setFocused(false);
+    vi.advanceTimersByTime(60_000 + 1);
+    await Promise.resolve();
+    __setConfig({
+      'claudeSpinner.idleThresholdMinutes': 1,
+      'claudeSpinner.idleBehavior': 'pause',
+      'claudeSpinner.cycleSpeed': 30,
+    });
+    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+    // @ts-expect-error mock module
+    (await import('vscode')).__emitConfigChange(['claudeSpinner']);
+    vi.advanceTimersByTime(1_000);
+    await Promise.resolve();
+    // Capture baseline call count after config-change debounce fires
+    const baseline = instances[0].user!.setActivity.mock.calls.length;
+    // Advance past multiple cycleSpeed intervals; no new pushes should occur
+    vi.advanceTimersByTime(120_000);
+    await Promise.resolve();
+    expect(instances[0].user!.setActivity.mock.calls.length).toBe(baseline);
+  });
+
   it('reconnect during idle "pause" pushes once but does not start cycling', async () => {
     vi.useFakeTimers();
     await bootAndReady('pause');

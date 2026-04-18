@@ -1,7 +1,7 @@
 import { Client } from '@xhayper/discord-rpc';
 import type { SetActivity } from '@xhayper/discord-rpc';
 
-export interface ClientCallbacks {
+interface ClientCallbacks {
   onReady?: () => void;
   onDisconnected?: () => void;
 }

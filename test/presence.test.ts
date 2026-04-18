@@ -132,9 +132,31 @@ describe('buildStateLine', () => {
     expect(line).toBe('In the terminal');
   });
 
-  it('omits state line when debug is active but language is unknown', () => {
+  it('shows "Debugging" (no language) when debug is active but language is unknown', () => {
     const state = baseState({ debugActive: true, currentLanguage: undefined });
-    expect(buildStateLine(state, baseConfig())).toBeUndefined();
+    expect(buildStateLine(state, baseConfig())).toBe('Debugging');
+  });
+
+  it('shows "Reviewing" (no language) when in diff but language is unknown', () => {
+    const state = baseState({ focusContext: 'diff', currentLanguage: undefined });
+    expect(buildStateLine(state, baseConfig())).toBe('Reviewing');
+  });
+
+  it('rule 2 (debug) beats rule 4 (terminal) even when language is unknown', () => {
+    const state = baseState({
+      debugActive: true,
+      focusContext: 'terminal',
+      currentLanguage: undefined,
+    });
+    expect(buildStateLine(state, baseConfig())).toBe('Debugging');
+  });
+
+  it('rule 3 (diff) beats rule 4 (terminal) even when language is unknown', () => {
+    const state = baseState({
+      focusContext: 'diff',
+      currentLanguage: undefined,
+    });
+    expect(buildStateLine(state, baseConfig())).toBe('Reviewing');
   });
 
   it('ignores smart triggers when smartState=false', () => {

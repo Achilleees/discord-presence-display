@@ -48,9 +48,19 @@ async function pushImmediate(): Promise<void> {
   if (!state || !config) return;
   if (!discord.isReady()) return;
 
-  // Re-read the active editor's language every push so a mid-session
-  // "Change Language Mode" picks up without requiring an editor switch.
-  state.currentLanguage = vscode.window.activeTextEditor?.document.languageId ?? state.currentLanguage;
+  // Idle-clear contract: never push a new payload while idle-clear is in
+  // effect; ensure the presence stays cleared.
+  if (state.isIdle && config.idleBehavior === 'clear') {
+    await discord.clearPresence();
+    return;
+  }
+
+  // Re-read the active editor's language every push. Direct assignment
+  // (not `?? state.currentLanguage`) so that closing the last editor
+  // propagates to state.currentLanguage = undefined, matching plan rule 5.
+  // VS Code's `activeTextEditor` stays sticky while focus is on a terminal,
+  // so this doesn't drop the language during terminal focus.
+  state.currentLanguage = vscode.window.activeTextEditor?.document.languageId;
 
   const word = pickCandidateWord(state, config, Date.now());
   const payload = buildPresencePayload(state, config, word);
@@ -95,6 +105,10 @@ function startCycle(): void {
   stopCycle();
   if (!config || !state || state.paused) return;
   if (!config.cycleWords) return;
+  // Idle-pause and idle-clear contracts forbid cycling; don't start an
+  // interval that would resurrect the cycle just because a cycleSpeed or
+  // cycleWords config change asked for a restart.
+  if (state.isIdle && (config.idleBehavior === 'pause' || config.idleBehavior === 'clear')) return;
 
   cycleInterval = setInterval(() => {
     void pushImmediate();
@@ -234,9 +248,9 @@ function applyIdleBehavior(): void {
 }
 
 function handleConfigChange(next: Config): void {
+  if (!state) return;
   const prev = config;
   config = next;
-  if (!state) return;
 
   const transition = computeConfigTransition(prev, next, {
     isIdle: state.isIdle,
@@ -289,6 +303,13 @@ export function activate(context: vscode.ExtensionContext): void {
       schedulePush();
     }),
     vscode.window.onDidChangeTextEditorSelection(() => {
+      if (!state) return;
+      if (lastInteractedSource === 'editor') return;
+      lastInteractedSource = 'editor';
+      state.focusContext = computeFocusContext();
+      schedulePush();
+    }),
+    vscode.window.onDidChangeTextEditorVisibleRanges(() => {
       if (!state) return;
       if (lastInteractedSource === 'editor') return;
       lastInteractedSource = 'editor';

@@ -130,10 +130,10 @@ export function buildStateLine(state: State, config: Config): string | undefined
   let base: string | undefined;
 
   if (config.smartState) {
-    if (state.debugActive && displayName) {
-      base = `Debugging in ${displayName}`;
-    } else if (state.focusContext === 'diff' && displayName) {
-      base = `Reviewing in ${displayName}`;
+    if (state.debugActive) {
+      base = displayName ? `Debugging in ${displayName}` : 'Debugging';
+    } else if (state.focusContext === 'diff') {
+      base = displayName ? `Reviewing in ${displayName}` : 'Reviewing';
     } else if (state.focusContext === 'terminal') {
       base = 'In the terminal';
     }

@@ -418,38 +418,29 @@ export function buildPool(config: PoolConfig): WeightedWord[] {
   });
 }
 
-export interface PickOptions {
-  readonly rng?: () => number;
-  readonly exclusionCap?: number;
-}
+const EXCLUSION_CAP = 3;
 
-export function getNextWord(
-  pool: readonly WeightedWord[],
-  recent: readonly string[],
-  options: PickOptions = {},
-): string {
+export function getNextWord(pool: readonly WeightedWord[], recent: readonly string[]): string {
   if (pool.length === 0) throw new Error('getNextWord called with empty pool');
   if (pool.length === 1) return pool[0].word;
 
-  const rng = options.rng ?? Math.random;
-  const cap = options.exclusionCap ?? 3;
   const maxExclude = Math.floor(pool.length / 2);
-  const excludeCount = Math.min(cap, maxExclude, recent.length);
+  const excludeCount = Math.min(EXCLUSION_CAP, maxExclude, recent.length);
   const excluded = excludeCount > 0 ? new Set(recent.slice(-excludeCount)) : null;
 
   const eligible = excluded === null ? pool : pool.filter((w) => !excluded.has(w.word));
   const picks = eligible.length > 0 ? eligible : pool;
 
-  return weightedPick(picks, rng);
+  return weightedPick(picks);
 }
 
-function weightedPick(pool: readonly WeightedWord[], rng: () => number): string {
+function weightedPick(pool: readonly WeightedWord[]): string {
   let total = 0;
   for (const { weight } of pool) total += weight;
   if (total <= 0) {
-    return pool[Math.floor(rng() * pool.length)].word;
+    return pool[Math.floor(Math.random() * pool.length)].word;
   }
-  let r = rng() * total;
+  let r = Math.random() * total;
   for (const { word, weight } of pool) {
     r -= weight;
     if (r < 0) return word;

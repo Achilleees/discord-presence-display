@@ -86,6 +86,7 @@ export const window = {
   },
   onDidChangeActiveTextEditor: () => ({ dispose: () => {} }),
   onDidChangeTextEditorSelection: () => ({ dispose: () => {} }),
+  onDidChangeTextEditorVisibleRanges: () => ({ dispose: () => {} }),
   onDidChangeActiveTerminal: () => ({ dispose: () => {} }),
   onDidChangeWindowState(listener: (e: { focused: boolean }) => void) {
     windowStateListeners.add(listener);
