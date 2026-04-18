@@ -7,30 +7,44 @@ interface ClientCallbacks {
 }
 
 let client: Client | null = null;
+let inFlightConnect: Promise<void> | null = null;
 
 export function isReady(): boolean {
   return client?.isConnected === true;
 }
 
 export async function connect(clientId: string, callbacks: ClientCallbacks = {}): Promise<void> {
-  if (client) {
-    const previous = client;
-    client = null;
-    await previous.destroy().catch(() => {});
-  }
+  // Serialize concurrent callers. Without this, two connect() calls can
+  // interleave across the destroy() await and leak a client whose socket
+  // was never closed.
+  if (inFlightConnect) await inFlightConnect.catch(() => {});
 
-  const next = new Client({ clientId });
-  client = next;
+  inFlightConnect = (async () => {
+    if (client) {
+      const previous = client;
+      client = null;
+      await previous.destroy().catch(() => {});
+    }
 
-  if (callbacks.onReady) next.on('ready', callbacks.onReady);
-  if (callbacks.onDisconnected) next.on('disconnected', callbacks.onDisconnected);
+    const next = new Client({ clientId });
+    client = next;
+
+    if (callbacks.onReady) next.on('ready', callbacks.onReady);
+    if (callbacks.onDisconnected) next.on('disconnected', callbacks.onDisconnected);
+
+    try {
+      await next.login();
+    } catch (err) {
+      if (client === next) client = null;
+      await next.destroy().catch(() => {});
+      throw err;
+    }
+  })();
 
   try {
-    await next.login();
-  } catch (err) {
-    if (client === next) client = null;
-    await next.destroy().catch(() => {});
-    throw err;
+    await inFlightConnect;
+  } finally {
+    inFlightConnect = null;
   }
 }
 

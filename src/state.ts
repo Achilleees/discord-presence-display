@@ -8,7 +8,8 @@ export class RingBuffer<T> {
     if (this.buf.length > this.capacity) this.buf.shift();
   }
   values(): readonly T[] {
-    return this.buf;
+    // Copy so callers can't mutate the internal buffer via a widened cast.
+    return this.buf.slice();
   }
 }
 

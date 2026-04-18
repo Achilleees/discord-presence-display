@@ -137,6 +137,40 @@ describe('computeConfigTransition', () => {
       const t = computeConfigTransition(cfg({ idleBehavior: 'slow' }), cfg({ idleBehavior: 'clear' }), ACTIVE_CTX);
       expect(t.applyIdleBehavior).toBe(false);
     });
+
+    it('restartCycle fires when idleBehavior changes while idle (audit r6 3.1-3.3)', () => {
+      // Needed so slow→none, pause→none, clear→none actually resume cycling.
+      const t1 = computeConfigTransition(cfg({ idleBehavior: 'slow' }), cfg({ idleBehavior: 'none' }), IDLE_CTX);
+      expect(t1.restartCycle).toBe(true);
+      const t2 = computeConfigTransition(cfg({ idleBehavior: 'pause' }), cfg({ idleBehavior: 'none' }), IDLE_CTX);
+      expect(t2.restartCycle).toBe(true);
+      const t3 = computeConfigTransition(cfg({ idleBehavior: 'clear' }), cfg({ idleBehavior: 'none' }), IDLE_CTX);
+      expect(t3.restartCycle).toBe(true);
+    });
+
+    it('restartCycle does NOT fire for idleBehavior change when not idle', () => {
+      const t = computeConfigTransition(cfg({ idleBehavior: 'slow' }), cfg({ idleBehavior: 'none' }), ACTIVE_CTX);
+      expect(t.restartCycle).toBe(false);
+    });
+  });
+
+  describe('per-setting schedulePush', () => {
+    for (const key of [
+      'showLanguage',
+      'showWorkspace',
+      'showElapsedTime',
+      'showLanguageIcon',
+      'smartState',
+    ] as const) {
+      it(`schedules a push when ${key} flips`, () => {
+        const prev = cfg({ [key]: true } as Partial<Config>);
+        const next = cfg({ [key]: false } as Partial<Config>);
+        const t = computeConfigTransition(prev, next, ACTIVE_CTX);
+        expect(t.schedulePush).toBe(true);
+        expect(t.restartCycle).toBe(false);
+        expect(t.clearPinnedWord).toBe(false);
+      });
+    }
   });
 
   it('always schedules push for any non-shutdown/non-reconnect change', () => {

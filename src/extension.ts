@@ -20,6 +20,7 @@ let idleTimeout: ReturnType<typeof setTimeout> | undefined;
 let pushDebounce: ReturnType<typeof setTimeout> | undefined;
 let lastInteractedSource: 'editor' | 'terminal' = 'editor';
 let currentClientId: symbol | undefined;
+let pushing = false;
 
 function getWorkspaceName(): string | undefined {
   const folders = vscode.workspace.workspaceFolders;
@@ -27,18 +28,22 @@ function getWorkspaceName(): string | undefined {
   return folders[0]?.name;
 }
 
+function instanceOfMaybe(input: unknown, name: 'TabInputTextDiff' | 'TabInputTextMultiDiff'): boolean {
+  const Ctor = (vscode as unknown as Record<string, new (...a: unknown[]) => unknown>)[name];
+  return typeof Ctor === 'function' && input instanceof Ctor;
+}
+
 function isDiffTab(tab: vscode.Tab | undefined): boolean {
   if (!tab) return false;
-  if (tab.input instanceof vscode.TabInputTextDiff) return true;
-  const MultiDiffCtor = (vscode as unknown as { TabInputTextMultiDiff?: new (...a: unknown[]) => unknown })
-    .TabInputTextMultiDiff;
-  if (MultiDiffCtor && tab.input instanceof MultiDiffCtor) return true;
-  return false;
+  return instanceOfMaybe(tab.input, 'TabInputTextDiff') || instanceOfMaybe(tab.input, 'TabInputTextMultiDiff');
 }
 
 function computeFocusContext(): FocusContext {
-  if (isDiffTab(vscode.window.tabGroups?.activeTabGroup?.activeTab)) return 'diff';
+  // Last user action wins: if the user most recently interacted with the
+  // terminal and a terminal is still present, prefer 'terminal' over a
+  // visually-active diff tab.
   if (lastInteractedSource === 'terminal' && vscode.window.activeTerminal) return 'terminal';
+  if (isDiffTab(vscode.window.tabGroups?.activeTabGroup?.activeTab)) return 'diff';
   if (vscode.window.activeTextEditor) return 'editor';
   if (vscode.window.activeTerminal) return 'terminal';
   return 'none';
@@ -47,34 +52,48 @@ function computeFocusContext(): FocusContext {
 async function pushImmediate(): Promise<void> {
   if (!state || !config) return;
   if (!discord.isReady()) return;
+  // Serialize pushes so a slow setActivity can't race with a subsequent
+  // cycle tick and produce two overlapping payloads.
+  if (pushing) return;
+  pushing = true;
+  try {
+    if (!state || !config) return;
 
-  // Idle-clear contract: never push a new payload while idle-clear is in
-  // effect; ensure the presence stays cleared.
-  if (state.isIdle && config.idleBehavior === 'clear') {
-    await discord.clearPresence();
-    return;
+    // Idle-clear contract: never push a new payload while idle-clear is in
+    // effect; ensure the presence stays cleared.
+    if (state.isIdle && config.idleBehavior === 'clear') {
+      await discord.clearPresence();
+      return;
+    }
+
+    // Re-read the active editor's language every push. Direct assignment
+    // (not `?? state.currentLanguage`) so that closing the last editor
+    // propagates to state.currentLanguage = undefined, matching plan rule
+    // 5. VS Code's `activeTextEditor` stays sticky while focus is on a
+    // terminal, so this doesn't drop the language during terminal focus.
+    state.currentLanguage = vscode.window.activeTextEditor?.document.languageId;
+
+    const word = pickCandidateWord(state, config, Date.now());
+    const payload = buildPresencePayload(state, config, word);
+    if (payload === null) {
+      await discord.clearPresence();
+      return;
+    }
+
+    await discord.pushPresence(payload);
+
+    // Guard against deactivate racing with an in-flight push.
+    if (!state || !config) return;
+
+    // Commit ring/pin state only after the push has been dispatched; if
+    // the client silently dropped it due to mid-flight disconnect, we
+    // still record the word so subsequent picks aren't anchored to a
+    // stale "not yet emitted" history.
+    if (config.cycleWords) state.recentWords.add(word);
+    else state.pinnedWord = word;
+  } finally {
+    pushing = false;
   }
-
-  // Re-read the active editor's language every push. Direct assignment
-  // (not `?? state.currentLanguage`) so that closing the last editor
-  // propagates to state.currentLanguage = undefined, matching plan rule 5.
-  // VS Code's `activeTextEditor` stays sticky while focus is on a terminal,
-  // so this doesn't drop the language during terminal focus.
-  state.currentLanguage = vscode.window.activeTextEditor?.document.languageId;
-
-  const word = pickCandidateWord(state, config, Date.now());
-  const payload = buildPresencePayload(state, config, word);
-  if (payload === null) {
-    await discord.clearPresence();
-    return;
-  }
-
-  // Only track rotation history when actually cycling; in pinned mode the
-  // ring would fill with repeats of the same word.
-  if (config.cycleWords) state.recentWords.add(word);
-  else state.pinnedWord = word;
-
-  await discord.pushPresence(payload);
 }
 
 function clearPushDebounce(): void {
@@ -109,6 +128,9 @@ function startCycle(): void {
   // interval that would resurrect the cycle just because a cycleSpeed or
   // cycleWords config change asked for a restart.
   if (state.isIdle && (config.idleBehavior === 'pause' || config.idleBehavior === 'clear')) return;
+  // No point in ticking if Discord isn't listening — avoid a zombie
+  // interval calling pushImmediate that just bails on !isReady.
+  if (!discord.isReady()) return;
 
   cycleInterval = setInterval(() => {
     void pushImmediate();
@@ -304,8 +326,14 @@ export function activate(context: vscode.ExtensionContext): void {
       state.focusContext = computeFocusContext();
       schedulePush();
     }),
-    vscode.window.onDidChangeTextEditorSelection(() => {
+    vscode.window.onDidChangeTextEditorSelection((event) => {
       if (!state) return;
+      // Only user-originated selection counts as interaction. Programmatic
+      // edits (formatters, LSPs, other extensions) fire without Keyboard/
+      // Mouse kinds and shouldn't steal focus from the terminal.
+      const kind = event.kind;
+      const Kinds = vscode.TextEditorSelectionChangeKind;
+      if (kind !== Kinds?.Keyboard && kind !== Kinds?.Mouse) return;
       if (lastInteractedSource === 'editor') return;
       lastInteractedSource = 'editor';
       state.focusContext = computeFocusContext();
@@ -324,6 +352,10 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.window.onDidChangeActiveTerminal((terminal) => {
       if (!state) return;
       if (terminal) lastInteractedSource = 'terminal';
+      // When the last terminal is closed, fall back to 'editor' so a
+      // stale 'terminal' flag doesn't leak into subsequent focus
+      // computations.
+      else if (lastInteractedSource === 'terminal') lastInteractedSource = 'editor';
       state.focusContext = computeFocusContext();
       schedulePush();
     }),
@@ -370,6 +402,7 @@ export function deactivate(): void {
   clearReconnect();
   clearIdleTimer();
   clearPushDebounce();
+  pushing = false;
   void discord.disconnect();
   state = undefined;
   config = undefined;

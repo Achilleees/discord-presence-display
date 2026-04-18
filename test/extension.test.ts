@@ -243,6 +243,57 @@ describe('idle engagement', () => {
     expect(instances[0].user!.setActivity.mock.calls.length).toBeGreaterThanOrEqual(1);
   });
 
+  it('idleBehavior slow→none while idle resumes normal cycling (audit r6 3.1)', async () => {
+    vi.useFakeTimers();
+    __setConfig({
+      'claudeSpinner.cycleSpeed': 10,
+      'claudeSpinner.idleThresholdMinutes': 1,
+      'claudeSpinner.idleBehavior': 'slow',
+    });
+    extension.activate(mkContext() as never);
+    await Promise.resolve();
+    await Promise.resolve();
+    if (instances[0]) instances[0].isConnected = true;
+    __setFocused(false);
+    await vi.advanceTimersByTimeAsync(60_001);
+    instances[0].user!.setActivity.mockClear();
+    __setConfig({
+      'claudeSpinner.cycleSpeed': 10,
+      'claudeSpinner.idleThresholdMinutes': 1,
+      'claudeSpinner.idleBehavior': 'none',
+    });
+    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+    // @ts-expect-error mock module
+    (await import('vscode')).__emitConfigChange(['claudeSpinner']);
+    await vi.advanceTimersByTimeAsync(1_000);
+    const afterChange = instances[0].user!.setActivity.mock.calls.length;
+    // Interval was armed at 10s during handleConfigChange; advance past
+    // that plus a buffer. Using the async variant drains microtasks
+    // between tick firings so pushing mutex releases in time.
+    await vi.advanceTimersByTimeAsync(11_000);
+    expect(instances[0].user!.setActivity.mock.calls.length).toBeGreaterThan(afterChange);
+  });
+
+  it('idleBehavior clear→none while idle restores presence', async () => {
+    vi.useFakeTimers();
+    await bootAndReady('clear');
+    __setFocused(false);
+    vi.advanceTimersByTime(60_000 + 1);
+    await Promise.resolve();
+    // Presence cleared. Flip to 'none'.
+    instances[0].user!.setActivity.mockClear();
+    __setConfig({
+      'claudeSpinner.idleThresholdMinutes': 1,
+      'claudeSpinner.idleBehavior': 'none',
+    });
+    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+    // @ts-expect-error mock module
+    (await import('vscode')).__emitConfigChange(['claudeSpinner']);
+    vi.advanceTimersByTime(1_000);
+    await Promise.resolve();
+    expect(instances[0].user?.setActivity).toHaveBeenCalled();
+  });
+
   it('paused + idle + refocus: no setActivity, presence stays cleared', async () => {
     vi.useFakeTimers();
     await bootAndReady('clear');
@@ -276,6 +327,27 @@ describe('idle engagement', () => {
     vi.advanceTimersByTime(60_000);
     await Promise.resolve();
     expect(instances[0].user!.setActivity.mock.calls.length).toBe(1);
+  });
+});
+
+describe('onReady', () => {
+  it('non-idle onReady pushes presence and schedules a cycle tick', async () => {
+    vi.useFakeTimers();
+    extension.activate(mkContext() as never);
+    await Promise.resolve();
+    await Promise.resolve();
+    if (instances[0]) instances[0].isConnected = true;
+    const readyCall = instances[0].on.mock.calls.find((c: unknown[]) => c[0] === 'ready');
+    const onReady = readyCall![1] as () => void;
+    instances[0].user!.setActivity.mockClear();
+    onReady();
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(instances[0].user?.setActivity).toHaveBeenCalled();
+    instances[0].user!.setActivity.mockClear();
+    await vi.advanceTimersByTimeAsync(15_100);
+    expect(instances[0].user?.setActivity).toHaveBeenCalled();
   });
 });
 

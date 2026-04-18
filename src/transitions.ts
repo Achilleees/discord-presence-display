@@ -60,12 +60,20 @@ export function computeConfigTransition(
     (prev.cycleWords && !next.cycleWords) ||
     (!next.cycleWords && poolAffectingChanged);
 
+  const idleBehaviorChangedWhileIdle = prev.idleBehavior !== next.idleBehavior && ctx.isIdle;
+
   return {
     ...NO_OP,
     clearPinnedWord,
-    restartCycle: prev.cycleSpeed !== next.cycleSpeed || prev.cycleWords !== next.cycleWords,
+    // Also restart the cycle when idleBehavior flips while idle so that a
+    // transition from slow/pause/clear to 'none' actually resumes normal
+    // cycling — applyIdleBehavior('none') is a no-op by design.
+    restartCycle:
+      prev.cycleSpeed !== next.cycleSpeed ||
+      prev.cycleWords !== next.cycleWords ||
+      idleBehaviorChangedWhileIdle,
     restartIdleTimer: prev.idleThresholdMinutes !== next.idleThresholdMinutes && ctx.idleTimerArmed,
-    applyIdleBehavior: prev.idleBehavior !== next.idleBehavior && ctx.isIdle,
+    applyIdleBehavior: idleBehaviorChangedWhileIdle,
     schedulePush: true,
   };
 }

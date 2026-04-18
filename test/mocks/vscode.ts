@@ -47,7 +47,10 @@ export const workspace = {
     configListeners.add(cb);
     return { dispose: () => configListeners.delete(cb) };
   },
-  onDidChangeWorkspaceFolders: () => ({ dispose: () => {} }),
+  onDidChangeWorkspaceFolders(listener: () => void) {
+    workspaceFoldersListeners.add(listener);
+    return { dispose: () => workspaceFoldersListeners.delete(listener) };
+  },
 };
 
 export const commands = {
@@ -60,6 +63,40 @@ export const commands = {
 const windowStateListeners = new Set<(e: { focused: boolean }) => void>();
 const debugStartListeners = new Set<() => void>();
 const debugEndListeners = new Set<() => void>();
+const activeEditorListeners = new Set<(editor: unknown) => void>();
+const selectionListeners = new Set<(event: { kind: unknown }) => void>();
+const visibleRangesListeners = new Set<() => void>();
+const activeTerminalListeners = new Set<(terminal: unknown) => void>();
+const tabListeners = new Set<() => void>();
+const workspaceFoldersListeners = new Set<() => void>();
+
+export const TextEditorSelectionChangeKind = { Keyboard: 1, Mouse: 2, Command: 3 };
+
+export function __setActiveEditor(editor: { document: { languageId: string } } | undefined): void {
+  window.activeTextEditor = editor;
+  for (const listener of activeEditorListeners) listener(editor);
+}
+
+export function __fireSelectionChange(kind: number | undefined = TextEditorSelectionChangeKind.Keyboard): void {
+  for (const listener of selectionListeners) listener({ kind });
+}
+
+export function __fireVisibleRanges(): void {
+  for (const listener of visibleRangesListeners) listener();
+}
+
+export function __setActiveTerminal(terminal: unknown): void {
+  (window as unknown as { activeTerminal: unknown }).activeTerminal = terminal;
+  for (const listener of activeTerminalListeners) listener(terminal);
+}
+
+export function __fireTabChange(): void {
+  for (const listener of tabListeners) listener();
+}
+
+export function __fireWorkspaceFoldersChange(): void {
+  for (const listener of workspaceFoldersListeners) listener();
+}
 
 export function __setFocused(focused: boolean): void {
   window.state.focused = focused;
@@ -78,16 +115,31 @@ export function __endDebugSession(): void {
 
 export const window = {
   activeTextEditor: undefined as { document: { languageId: string } } | undefined,
-  activeTerminal: undefined,
+  activeTerminal: undefined as unknown,
   state: { focused: true },
   tabGroups: {
     activeTabGroup: undefined,
-    onDidChangeTabs: () => ({ dispose: () => {} }),
+    onDidChangeTabs(listener: () => void) {
+      tabListeners.add(listener);
+      return { dispose: () => tabListeners.delete(listener) };
+    },
   },
-  onDidChangeActiveTextEditor: () => ({ dispose: () => {} }),
-  onDidChangeTextEditorSelection: () => ({ dispose: () => {} }),
-  onDidChangeTextEditorVisibleRanges: () => ({ dispose: () => {} }),
-  onDidChangeActiveTerminal: () => ({ dispose: () => {} }),
+  onDidChangeActiveTextEditor(listener: (editor: unknown) => void) {
+    activeEditorListeners.add(listener);
+    return { dispose: () => activeEditorListeners.delete(listener) };
+  },
+  onDidChangeTextEditorSelection(listener: (event: { kind: unknown }) => void) {
+    selectionListeners.add(listener);
+    return { dispose: () => selectionListeners.delete(listener) };
+  },
+  onDidChangeTextEditorVisibleRanges(listener: () => void) {
+    visibleRangesListeners.add(listener);
+    return { dispose: () => visibleRangesListeners.delete(listener) };
+  },
+  onDidChangeActiveTerminal(listener: (terminal: unknown) => void) {
+    activeTerminalListeners.add(listener);
+    return { dispose: () => activeTerminalListeners.delete(listener) };
+  },
   onDidChangeWindowState(listener: (e: { focused: boolean }) => void) {
     windowStateListeners.add(listener);
     return { dispose: () => windowStateListeners.delete(listener) };
@@ -110,7 +162,15 @@ export function __resetEvents(): void {
   windowStateListeners.clear();
   debugStartListeners.clear();
   debugEndListeners.clear();
+  activeEditorListeners.clear();
+  selectionListeners.clear();
+  visibleRangesListeners.clear();
+  activeTerminalListeners.clear();
+  tabListeners.clear();
+  workspaceFoldersListeners.clear();
   window.state.focused = true;
+  window.activeTextEditor = undefined;
+  (window as unknown as { activeTerminal: unknown }).activeTerminal = undefined;
   (debug as unknown as { activeDebugSession: unknown }).activeDebugSession = undefined;
 }
 
