@@ -46,6 +46,15 @@ import {
   __resetEvents,
   __startDebugSession,
   __endDebugSession,
+  __setActiveEditor,
+  __fireSelectionChange,
+  __setActiveTerminal,
+  __fireTabChange,
+  __fireWorkspaceFoldersChange,
+  TextEditorSelectionChangeKind,
+  TabInputTextDiff,
+  window as mockWindow,
+  workspace as mockWorkspace,
 } from 'vscode';
 import * as extension from '../src/extension';
 
@@ -351,6 +360,104 @@ describe('onReady', () => {
   });
 });
 
+describe('event listeners', () => {
+  async function setupConnected(): Promise<void> {
+    vi.useFakeTimers();
+    extension.activate(mkContext() as never);
+    await Promise.resolve();
+    await Promise.resolve();
+    if (instances[0]) instances[0].isConnected = true;
+  }
+
+  it('active-editor change updates currentLanguage', async () => {
+    await setupConnected();
+    __setActiveEditor({ document: { languageId: 'python' } });
+    await vi.advanceTimersByTimeAsync(1_000);
+    const payload = instances[0].user!.setActivity.mock.calls.at(-1)?.[0] as { state?: string };
+    expect(payload?.state).toContain('Python');
+  });
+
+  it('closing the last editor sets state line to omitted', async () => {
+    __setConfig({});
+    await setupConnected();
+    __setActiveEditor({ document: { languageId: 'typescript' } });
+    await vi.advanceTimersByTimeAsync(1_000);
+    __setActiveEditor(undefined);
+    await vi.advanceTimersByTimeAsync(1_000);
+    const latest = instances[0].user!.setActivity.mock.calls.at(-1)?.[0] as { state?: string };
+    expect(latest?.state).toBeUndefined();
+  });
+
+  it('terminal activation flips focus to "terminal"', async () => {
+    await setupConnected();
+    __setActiveTerminal({ name: 'bash' });
+    await vi.advanceTimersByTimeAsync(1_000);
+    const latest = instances[0].user!.setActivity.mock.calls.at(-1)?.[0] as { state?: string };
+    expect(latest?.state).toBe('In the terminal');
+  });
+
+  it('closing the last terminal reverts lastInteractedSource to editor', async () => {
+    await setupConnected();
+    __setActiveEditor({ document: { languageId: 'rust' } });
+    __setActiveTerminal({ name: 't1' });
+    await vi.advanceTimersByTimeAsync(1_000);
+    __setActiveTerminal(undefined);
+    // Fire a selection event to trigger a push that reflects the new focus.
+    __fireSelectionChange(TextEditorSelectionChangeKind.Keyboard);
+    await vi.advanceTimersByTimeAsync(1_000);
+    const latest = instances[0].user!.setActivity.mock.calls.at(-1)?.[0] as { state?: string };
+    expect(latest?.state).toBe('Working in Rust');
+  });
+
+  it('selection change with Command kind does NOT steal focus from terminal', async () => {
+    await setupConnected();
+    __setActiveEditor({ document: { languageId: 'go' } });
+    __setActiveTerminal({ name: 't' });
+    await vi.advanceTimersByTimeAsync(1_000);
+    // Programmatic selection should NOT flip lastInteractedSource.
+    __fireSelectionChange(TextEditorSelectionChangeKind.Command);
+    await vi.advanceTimersByTimeAsync(1_000);
+    const latest = instances[0].user!.setActivity.mock.calls.at(-1)?.[0] as { state?: string };
+    expect(latest?.state).toBe('In the terminal');
+  });
+
+  it('selection change with Keyboard kind flips focus to editor', async () => {
+    await setupConnected();
+    __setActiveEditor({ document: { languageId: 'go' } });
+    __setActiveTerminal({ name: 't' });
+    await vi.advanceTimersByTimeAsync(1_000);
+    __fireSelectionChange(TextEditorSelectionChangeKind.Keyboard);
+    await vi.advanceTimersByTimeAsync(1_000);
+    const latest = instances[0].user!.setActivity.mock.calls.at(-1)?.[0] as { state?: string };
+    expect(latest?.state).toBe('Working in Go');
+  });
+
+  it('tab change with a diff tab produces Reviewing state line', async () => {
+    await setupConnected();
+    __setActiveEditor({ document: { languageId: 'typescript' } });
+    (mockWindow as unknown as { tabGroups: { activeTabGroup: unknown } }).tabGroups.activeTabGroup = {
+      activeTab: { input: new TabInputTextDiff() },
+    };
+    __fireTabChange();
+    await vi.advanceTimersByTimeAsync(1_000);
+    const latest = instances[0].user!.setActivity.mock.calls.at(-1)?.[0] as { state?: string };
+    expect(latest?.state).toBe('Reviewing in TypeScript');
+  });
+
+  it('workspace folders change updates the appended workspace name', async () => {
+    __setConfig({ 'claudeSpinner.showWorkspace': true });
+    await setupConnected();
+    __setActiveEditor({ document: { languageId: 'rust' } });
+    (mockWorkspace as unknown as {
+      workspaceFolders: readonly { name: string; uri: { fsPath: string } }[] | undefined;
+    }).workspaceFolders = [{ name: 'my-new-repo', uri: { fsPath: '/tmp' } }];
+    __fireWorkspaceFoldersChange();
+    await vi.advanceTimersByTimeAsync(1_000);
+    const latest = instances[0].user!.setActivity.mock.calls.at(-1)?.[0] as { state?: string };
+    expect(latest?.state).toBe('Working in Rust — my-new-repo');
+  });
+});
+
 describe('debug session', () => {
   it('pushes a new payload after debug session starts', async () => {
     vi.useFakeTimers();
@@ -364,6 +471,64 @@ describe('debug session', () => {
     await Promise.resolve();
     expect(instances[0].user?.setActivity).toHaveBeenCalled();
     __endDebugSession();
+  });
+});
+
+describe('push mutex', () => {
+  it('drops concurrent pushes but retries via dirty flag after the current one completes', async () => {
+    vi.useFakeTimers();
+    extension.activate(mkContext() as never);
+    await Promise.resolve();
+    await Promise.resolve();
+    if (instances[0]) instances[0].isConnected = true;
+
+    // Make setActivity hang so the first push holds the mutex.
+    let resolveFirst: (() => void) | undefined;
+    instances[0].user!.setActivity.mockImplementation(
+      () => new Promise<void>((r) => {
+        resolveFirst = r;
+      }),
+    );
+
+    // Fire first push (via manual onReady) — it enters the mutex and hangs.
+    const readyCall = instances[0].on.mock.calls.find((c: unknown[]) => c[0] === 'ready');
+    const onReady = readyCall![1] as () => void;
+    onReady();
+    await Promise.resolve();
+
+    // Fire a second push while the first is busy (simulate a config change).
+    __startDebugSession();
+    await vi.advanceTimersByTimeAsync(1_000);
+    // At this point, dirty flag should have been set; mutex still holds.
+    expect(instances[0].user!.setActivity.mock.calls.length).toBe(1);
+
+    // Release the first push. The dirty flag should trigger a second push.
+    instances[0].user!.setActivity.mockImplementation(() => Promise.resolve());
+    resolveFirst!();
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(instances[0].user!.setActivity.mock.calls.length).toBeGreaterThanOrEqual(2);
+  });
+});
+
+describe('boot-unfocused', () => {
+  it('with idleBehavior=clear, first connect keeps presence cleared', async () => {
+    vi.useFakeTimers();
+    __setConfig({
+      'claudeSpinner.idleBehavior': 'clear',
+      'claudeSpinner.idleThresholdMinutes': 1,
+    });
+    mockWindow.state.focused = false;
+    extension.activate(mkContext() as never);
+    await Promise.resolve();
+    await Promise.resolve();
+    if (instances[0]) instances[0].isConnected = true;
+    // Simulate ready
+    const readyCall = instances[0].on.mock.calls.find((c: unknown[]) => c[0] === 'ready');
+    const onReady = readyCall![1] as () => void;
+    onReady();
+    await vi.advanceTimersByTimeAsync(100);
+    expect(instances[0].user?.setActivity).not.toHaveBeenCalled();
+    expect(instances[0].user?.clearActivity).toHaveBeenCalled();
   });
 });
 

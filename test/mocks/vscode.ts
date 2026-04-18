@@ -171,7 +171,9 @@ export function __resetEvents(): void {
   window.state.focused = true;
   window.activeTextEditor = undefined;
   (window as unknown as { activeTerminal: unknown }).activeTerminal = undefined;
+  (window.tabGroups as unknown as { activeTabGroup: unknown }).activeTabGroup = undefined;
   (debug as unknown as { activeDebugSession: unknown }).activeDebugSession = undefined;
+  workspace.workspaceFolders = undefined;
 }
 
 export class TabInputTextDiff {}

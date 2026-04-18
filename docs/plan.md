@@ -47,7 +47,7 @@ src/
 | `config.ts` | `readConfig()` → `Config`, `onConfigChange(cb)` → `Disposable` | `vscode` |
 | `commands.ts` | `registerCommands(context, deps)` → `Disposable[]` | `state`, `discord-client`, `presence` |
 | `state.ts` | `createState(...)` factory + `State` type — `paused`, `currentLanguage`, `startTimestamp`, `recentWords` (ring buffer of last 3), `isIdle`, `debugActive`, `focusContext`, `workspaceName`, `pinnedWord`. Instance owned by `extension.ts` | — |
-| `words.ts` | `WORDS`, `getNextWord(pool, recent, opts)`, `buildPool(config, state)` | — |
+| `words.ts` | `WORDS`, `getNextWord(pool, recent)`, `buildPool(config)` | — |
 
 **Activate flow**
 
@@ -137,9 +137,9 @@ Registered under `contributes.configuration` in `package.json`. All live-reload 
 **Idle behavior** (when window loses focus past `idleThresholdMinutes`)
 
 - `slow` (default): cycle interval × 4, max 120s clamped
-- `pause`: clear interval, keep last presence visible
-- `clear`: clear interval + clear presence
-- `none`: no change
+- `pause`: clear interval, keep last presence visible. On Discord reconnect during an idle-pause session, push once to restore visibility (the server-side state was lost during the disconnect), then stay silent.
+- `clear`: clear interval + clear presence. On Discord reconnect during an idle-clear session, do not push — keep the presence cleared.
+- `none`: no change.
 
 On focus regain: push fresh presence immediately, restore normal cycle.
 
@@ -157,10 +157,10 @@ On focus regain: push fresh presence immediately, restore normal cycle.
 
 Custom words classified as common.
 
-**Time-based pools** (`timeBasedPools: true`). Bias by session elapsed:
+**Time-based pools** (`timeBasedPools: true`). Bias by session elapsed. Boundaries are half-open:
 
-- 0–30 min (warming up): `Brewing`, `Simmering`, `Percolating`, `Incubating`, `Germinating`, ...
-- 30–120 min (in the zone): `Computing`, `Synthesizing`, `Orchestrating`, `Architecting`, ...
+- under 30 min (warming up): `Brewing`, `Simmering`, `Percolating`, `Incubating`, `Germinating`, ...
+- 30–under 120 min (in the zone): `Computing`, `Synthesizing`, `Orchestrating`, `Architecting`, ...
 - 120+ min (deep session): `Hyperspacing`, `Transmuting`, `Prestidigitating`, ...
 
 Bias ≠ exclusion; out-of-pool words still appear, just less often. Custom words = wildcard tier (always eligible).

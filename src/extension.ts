@@ -21,6 +21,7 @@ let pushDebounce: ReturnType<typeof setTimeout> | undefined;
 let lastInteractedSource: 'editor' | 'terminal' = 'editor';
 let currentClientId: symbol | undefined;
 let pushing = false;
+let pushDirty = false;
 
 function getWorkspaceName(): string | undefined {
   const folders = vscode.workspace.workspaceFolders;
@@ -53,8 +54,14 @@ async function pushImmediate(): Promise<void> {
   if (!state || !config) return;
   if (!discord.isReady()) return;
   // Serialize pushes so a slow setActivity can't race with a subsequent
-  // cycle tick and produce two overlapping payloads.
-  if (pushing) return;
+  // cycle tick and produce two overlapping payloads. If another push is
+  // requested while we're busy, remember it and fire a debounced retry
+  // after the current one completes — so config/event changes during a
+  // slow IPC round-trip aren't silently dropped.
+  if (pushing) {
+    pushDirty = true;
+    return;
+  }
   pushing = true;
   try {
     if (!state || !config) return;
@@ -85,14 +92,18 @@ async function pushImmediate(): Promise<void> {
     // Guard against deactivate racing with an in-flight push.
     if (!state || !config) return;
 
-    // Commit ring/pin state only after the push has been dispatched; if
-    // the client silently dropped it due to mid-flight disconnect, we
-    // still record the word so subsequent picks aren't anchored to a
-    // stale "not yet emitted" history.
+    // For cycling: commit to the ring regardless of push success so the
+    // anti-duplicate picker advances. For pinned mode: only commit if
+    // the push actually reached Discord, otherwise a mid-flight
+    // disconnect would pin a word that never appeared to the user.
     if (config.cycleWords) state.recentWords.add(word);
-    else state.pinnedWord = word;
+    else if (discord.isReady()) state.pinnedWord = word;
   } finally {
     pushing = false;
+    if (pushDirty) {
+      pushDirty = false;
+      schedulePush();
+    }
   }
 }
 
@@ -339,13 +350,6 @@ export function activate(context: vscode.ExtensionContext): void {
       state.focusContext = computeFocusContext();
       schedulePush();
     }),
-    vscode.window.onDidChangeTextEditorVisibleRanges(() => {
-      if (!state) return;
-      if (lastInteractedSource === 'editor') return;
-      lastInteractedSource = 'editor';
-      state.focusContext = computeFocusContext();
-      schedulePush();
-    }),
     vscode.window.onDidChangeWindowState(() => {
       onWindowStateChange();
     }),
@@ -403,6 +407,7 @@ export function deactivate(): void {
   clearIdleTimer();
   clearPushDebounce();
   pushing = false;
+  pushDirty = false;
   void discord.disconnect();
   state = undefined;
   config = undefined;
