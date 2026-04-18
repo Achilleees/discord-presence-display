@@ -25,10 +25,11 @@ const NO_OP: ConfigTransition = {
   schedulePush: false,
 };
 
-function sameStringList(a: readonly string[], b: readonly string[]): boolean {
+function sameStringSet(a: readonly string[], b: readonly string[]): boolean {
   if (a === b) return true;
   if (a.length !== b.length) return false;
-  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+  const set = new Set(a);
+  for (const v of b) if (!set.has(v)) return false;
   return true;
 }
 
@@ -39,10 +40,13 @@ export function computeConfigTransition(
 ): ConfigTransition {
   if (!next.enabled) return { ...NO_OP, shutdown: true };
   if (prev && !prev.enabled && next.enabled) return { ...NO_OP, reconnect: true };
+  // Defensive: prev is always defined in production (activate() sets config
+  // before the change listener can fire). Kept so the pure function works
+  // standalone in tests and doesn't NPE if invoked out of order.
   if (!prev) return { ...NO_OP, schedulePush: true };
 
   const poolAffectingChanged =
-    !sameStringList(prev.customWords, next.customWords) ||
+    !sameStringSet(prev.customWords, next.customWords) ||
     prev.wordRarity !== next.wordRarity ||
     prev.timeBasedPools !== next.timeBasedPools;
 

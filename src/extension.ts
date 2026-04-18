@@ -158,7 +158,8 @@ async function connectFlow(): Promise<void> {
         if (!isCurrent()) return;
         if (!config?.enabled || !state) return;
         clearReconnect();
-        stopCycle();
+        // resumeAfterReady calls startCycle (which calls stopCycle first)
+        // or clearPresence under idle-clear; no separate stopCycle needed.
         resumeAfterReady();
       },
       onDisconnected: () => {
@@ -206,10 +207,11 @@ function onWindowStateChange(): void {
   if (!state || !config) return;
   const focused = vscode.window.state.focused;
   if (!focused) {
-    clearIdleTimer();
     // Don't re-arm once we've already crossed the threshold — idle stays
-    // idle until focus returns.
-    if (!state.isIdle) {
+    // idle until focus returns. Also don't re-arm on spurious focus=false
+    // events when a timer is already running; resetting the countdown on
+    // every such event could indefinitely postpone engageIdle.
+    if (!state.isIdle && !idleTimeout) {
       idleTimeout = setTimeout(engageIdle, config.idleThresholdMinutes * 60_000);
     }
   } else {
@@ -354,9 +356,12 @@ export function activate(context: vscode.ExtensionContext): void {
 
   if (config.enabled) {
     void connectFlow();
+    // Only arm the idle machinery when the extension is actually active;
+    // otherwise a disabled extension that boots unfocused would eventually
+    // fire engageIdle → applyIdleBehavior → startCycle, creating a dormant
+    // interval that ticks pointlessly while !discord.isReady().
+    onWindowStateChange();
   }
-
-  onWindowStateChange();
 }
 
 export function deactivate(): void {

@@ -26,6 +26,10 @@ function clamp(raw: unknown, min: number, max: number): number {
   return Math.min(max, Math.max(min, n));
 }
 
+function toBool(raw: unknown, def: boolean): boolean {
+  return typeof raw === 'boolean' ? raw : def;
+}
+
 function sanitizeCustomWords(raw: unknown): string[] {
   if (!Array.isArray(raw)) return [];
   const seen = new Set<string>();
@@ -48,19 +52,19 @@ function asIdleBehavior(v: unknown): IdleBehavior {
 export function readConfig(): Config {
   const cfg = vscode.workspace.getConfiguration(CONFIG_SECTION);
   return {
-    enabled: cfg.get<boolean>('enabled', true),
+    enabled: toBool(cfg.get<unknown>('enabled', true), true),
     cycleSpeed: clamp(cfg.get<unknown>('cycleSpeed', 15), 5, 120),
-    cycleWords: cfg.get<boolean>('cycleWords', true),
+    cycleWords: toBool(cfg.get<unknown>('cycleWords', true), true),
     customWords: sanitizeCustomWords(cfg.get<unknown>('customWords', [])),
-    showLanguage: cfg.get<boolean>('showLanguage', true),
-    showWorkspace: cfg.get<boolean>('showWorkspace', false),
-    showElapsedTime: cfg.get<boolean>('showElapsedTime', true),
-    showLanguageIcon: cfg.get<boolean>('showLanguageIcon', true),
-    smartState: cfg.get<boolean>('smartState', true),
-    idleBehavior: asIdleBehavior(cfg.get<string>('idleBehavior', 'slow')),
+    showLanguage: toBool(cfg.get<unknown>('showLanguage', true), true),
+    showWorkspace: toBool(cfg.get<unknown>('showWorkspace', false), false),
+    showElapsedTime: toBool(cfg.get<unknown>('showElapsedTime', true), true),
+    showLanguageIcon: toBool(cfg.get<unknown>('showLanguageIcon', true), true),
+    smartState: toBool(cfg.get<unknown>('smartState', true), true),
+    idleBehavior: asIdleBehavior(cfg.get<unknown>('idleBehavior', 'slow')),
     idleThresholdMinutes: clamp(cfg.get<unknown>('idleThresholdMinutes', 5), 1, 60),
-    wordRarity: cfg.get<boolean>('wordRarity', false),
-    timeBasedPools: cfg.get<boolean>('timeBasedPools', false),
+    wordRarity: toBool(cfg.get<unknown>('wordRarity', false), false),
+    timeBasedPools: toBool(cfg.get<unknown>('timeBasedPools', false), false),
   };
 }
 

@@ -99,9 +99,10 @@ describe('connect', () => {
 
 describe('pushPresence / clearPresence', () => {
   it('no-ops when not connected', async () => {
-    await discord.pushPresence({ details: 'test' });
-    await discord.clearPresence();
-    // No assertions — should not throw.
+    expect(discord.isReady()).toBe(false);
+    await expect(discord.pushPresence({ details: 'test' })).resolves.toBeUndefined();
+    await expect(discord.clearPresence()).resolves.toBeUndefined();
+    expect(discord.isReady()).toBe(false);
   });
 
   it('calls setActivity when connected', async () => {

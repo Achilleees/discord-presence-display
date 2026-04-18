@@ -132,6 +132,12 @@ describe('buildStateLine', () => {
     expect(line).toBe('In the terminal');
   });
 
+  it('omits state line on rule 5 (undefined language) even when showWorkspace=true', () => {
+    // Plan §State line priority rule 7: "Step 5 has nothing to append to."
+    const state = baseState({ currentLanguage: undefined });
+    expect(buildStateLine(state, baseConfig({ showWorkspace: true }))).toBeUndefined();
+  });
+
   it('shows "Debugging" (no language) when debug is active but language is unknown', () => {
     const state = baseState({ debugActive: true, currentLanguage: undefined });
     expect(buildStateLine(state, baseConfig())).toBe('Debugging');
@@ -242,11 +248,24 @@ describe('pickCandidateWord', () => {
     expect(WORDS as readonly string[]).toContain(word);
   });
 
-  it('picks a fresh word when cycleWords=false and pinnedWord is undefined', () => {
+  it('picks a fresh word from WORDS when cycleWords=false and pinnedWord is undefined', () => {
     const state = baseState({ pinnedWord: undefined });
     const word = pickCandidateWord(state, baseConfig({ cycleWords: false }), now);
-    expect(word).toBeDefined();
-    expect(word).not.toBe(undefined);
+    expect(WORDS as readonly string[]).toContain(word);
+  });
+
+  it('picks from WORDS ∪ customWords when cycleWords=false and customWords supplied', () => {
+    const state = baseState({ pinnedWord: undefined });
+    const config = baseConfig({ cycleWords: false, customWords: ['Nebulating'] });
+    // Force low randomness so we sometimes get the custom word; assert
+    // membership in either set over many iterations.
+    const seen = new Set<string>();
+    for (let i = 0; i < 500; i++) {
+      seen.add(pickCandidateWord(state, config, now));
+    }
+    for (const w of seen) {
+      expect((WORDS as readonly string[]).includes(w) || w === 'Nebulating').toBe(true);
+    }
   });
 
   it('avoids words in the recent ring', () => {

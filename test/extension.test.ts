@@ -218,6 +218,48 @@ describe('idle engagement', () => {
     expect(instances[0].user!.setActivity.mock.calls.length).toBe(baseline);
   });
 
+  it('idle "slow" cycles at quadrupled interval, not normal cycleSpeed', async () => {
+    vi.useFakeTimers();
+    __setConfig({
+      'claudeSpinner.cycleSpeed': 10,
+      'claudeSpinner.idleThresholdMinutes': 1,
+      'claudeSpinner.idleBehavior': 'slow',
+    });
+    extension.activate(mkContext() as never);
+    await Promise.resolve();
+    if (instances[0]) instances[0].isConnected = true;
+    __setFocused(false);
+    vi.advanceTimersByTime(60_000 + 1);
+    await Promise.resolve();
+    // Engaged idle-slow. cycleSpeed=10s → idle interval should be 40s.
+    instances[0].user!.setActivity.mockClear();
+    // One normal cycleSpeed elapses — no tick expected under slow.
+    vi.advanceTimersByTime(10_000);
+    await Promise.resolve();
+    expect(instances[0].user!.setActivity.mock.calls.length).toBe(0);
+    // Advance past 40s total — at least one tick expected.
+    vi.advanceTimersByTime(31_000);
+    await Promise.resolve();
+    expect(instances[0].user!.setActivity.mock.calls.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('paused + idle + refocus: no setActivity, presence stays cleared', async () => {
+    vi.useFakeTimers();
+    await bootAndReady('clear');
+    const toggle = __getRegisteredCommand('claudeSpinner.toggle')!;
+    toggle(); // pause
+    await Promise.resolve();
+    instances[0].user!.clearActivity.mockClear();
+    instances[0].user!.setActivity.mockClear();
+    __setFocused(false);
+    vi.advanceTimersByTime(60_000 + 1);
+    await Promise.resolve();
+    __setFocused(true);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(instances[0].user!.setActivity).not.toHaveBeenCalled();
+  });
+
   it('reconnect during idle "pause" pushes once but does not start cycling', async () => {
     vi.useFakeTimers();
     await bootAndReady('pause');
