@@ -2,80 +2,103 @@
 
 ## Status
 
-- **Date:** 2026-04-18
-- **Target version:** `1.0.0` (bump from pre-release `0.1.0`)
+- **Date:** 2026-04-18 (revised)
+- **Target version:** `1.0.0` (bump from pre-release `0.1.0`); no interim releases
 - **Supersedes:** settings + Discord app + module structure sections of `2026-04-16-claude-spinner-design.md`
-- **Approved:** yes (bundled scope, Discord name = "Claude Spinner", elapsed-time = session-total, 6-file module split)
+- **Approved:** yes, with naming and icon design marked as **iterate-in-plan** (see §9)
 
 ## Goal
 
-Transform the pre-release `0.1.0` prototype into a polished, bug-free `1.0.0` public release that reflects "this is a VS Code extension" visually and exposes sensible user configuration — shippable to the VS Code Marketplace without requiring an immediate v1.1 patch.
+Transform the pre-release `0.1.0` prototype into a polished, feature-complete, bug-free `1.0.0` public release that makes sense to a Discord viewer who has never heard of the extension — rich configuration for power users, sensible defaults for everyone else, and a visual identity that communicates "this person is coding in VS Code" at a glance.
 
 ## Context
 
-The extension works functionally but ships with three quality gaps that block a credible first impression:
+The extension works functionally but ships with three quality gaps that would make first impressions amateurish:
 
-1. **No user configuration.** Cycle speed is hardcoded at 15s (visibly too slow on first run), and no settings schema is registered. Users can't customize or pause the presence.
-2. **Discord application identity is incoherent.** The backing Discord app is currently named "Attention" and the only image is labeled "Claude" — viewers see "Playing Attention" with no visual indication this is tied to VS Code.
-3. **Known bugs present.** Back-to-back duplicate words are possible at slow cycle speeds; the reconnect path leaks the prior Discord client instance; no-editor-focus edge cases are unhandled.
+1. **No user configuration.** All behavior is hardcoded. Users can't tune cycle speed, hide fields, pause, or extend the word list.
+2. **Incoherent Discord identity.** The backing Discord application is named "Attention" and the only image is labeled "Claude" — viewers see "Playing Attention" beside an unexplained logo.
+3. **Known bugs.** Back-to-back duplicate words, reconnect resource leak, silent state-line disappearance when focus isn't on an editor.
 
-We bundle all three into a single v1.0 polish pass rather than shipping `0.1.0` and iterating, because the settings schema and Discord identity are first-impression surfaces — iterating them after first publish looks more amateurish than delaying.
+We bundle everything reasonable into v1.0 — no "deferred to v1.1" shelving — because each of these surfaces is first-impression material that's more awkward to fix post-launch than to get right before publish.
 
-## Scope
+---
 
-### In scope for v1.0
+## 1. Scope
 
-| Track | Content |
+### 1.1 In v1.0
+
+All user-facing functionality ships in this release:
+
+| Subsystem | Content |
 |---|---|
-| **Settings infrastructure** | `contributes.configuration` schema, config reader, live reload on change |
-| **Settings** | `cycleSpeed`, `customWords`, `showLanguage`, `showElapsedTime`, `showWorkspace` |
-| **Commands** | `claudeSpinner.toggle` — pause / resume presence |
-| **Discord rebrand** | New app name "Claude Spinner", restructured large/small image roles, new CLIENT_ID in code |
-| **Bug fixes** | Back-to-back duplicate prevention, reconnect resource cleanup, no-editor-focus behavior |
-| **Module split** | Refactor from 2 files → 6 files with clear single-responsibility boundaries |
-| **Tests** | Unit tests per module; integration smoke test for activate→presence push |
-| **Docs** | CHANGELOG entry, README updated to reflect settings + new Discord identity, version bump to 1.0.0 |
+| Settings infrastructure | `contributes.configuration` schema, reader, live-reload on change |
+| Settings (13 keys) | See §5 |
+| Commands | `claudeSpinner.toggle` (pause/resume) |
+| Idle detection | Window-focus → slow/pause/clear cycle, configurable |
+| Smart state | Detects debug, diff-editor, terminal focus; overrides default "Working in X" line |
+| Language icons | Small-image shows language icon for top ~25 languages; Claude logo fallback |
+| Workspace name | Optional append to state line (off by default for privacy) |
+| Word rarity weighting | Opt-in tiered random (common/uncommon/rare) |
+| Time-based word pools | Opt-in bias toward "warming up / in zone / deep session" word groupings |
+| Anti-duplicate picker | Never repeat any of the last 3 words |
+| Discord application rebrand | New app at Developer Portal, new icon, new Client ID, restructured image slots |
+| Extension rebrand | New marketplace display name + `name` package identifier |
+| Bug fixes | Duplicates, reconnect leak, no-editor-focus behavior |
+| Module split | Refactor from 2 files → 7 files with clear boundaries |
+| Tests | Unit per module; integration smoke for activate→push |
+| Docs | CHANGELOG, README updated, version bump |
+| Gitignore | `docs/superpowers/plans/` becomes local-only |
 
-### Deferred to v1.1+
+### 1.2 Non-goals — permanent, not deferred
 
-- Idle detection (window focus → slow/pause cycle)
-- Language-specific small icons (needs ~20 Discord assets uploaded manually)
-- Smart state text ("Debugging in X", "Reviewing in X", "Terminal")
-- Workspace-name display in state line (setting is present but behavior ships v1.1)
-- Word streaks, rarity tiers, community word packs (Phase 3 experimental)
+Things Claude Spinner will **never** do, by design:
 
-## Architecture
+- **No telemetry.** Ever.
+- **No network calls** beyond the local Discord IPC socket.
+- **No external integrations** (GitHub, Slack, Linear, etc.).
+- **No AI assistant features.** The extension is about *displaying* coding activity, not augmenting it.
+- **No multi-user or team features.** Per-user, per-VS-Code-instance only.
+- **No community word packs loaded from remote URLs.** User-provided custom words via settings: yes. Fetching shared packs over the network: no (see "no network calls").
 
-### Module split
+### 1.3 Intentionally skipped from v1.0
 
-Current structure (2 files, 275 total lines) has `extension.ts` carrying lifecycle, client management, presence payload construction, and language tracking. This concentrates responsibilities that should be isolated for testability.
+Unlike non-goals above, these are features we *might* revisit but chose not to include now — they serve a smaller slice of users than the scope above:
 
-Target structure:
+- **User-loaded word pack JSON files** (local files, not network). Covered partially by `customWords` setting. Full pack loading adds file I/O surface for niche benefit.
+- **Config profiles.** VS Code's built-in Profiles feature already lets users switch extension settings per workspace.
+
+---
+
+## 2. Architecture
+
+### 2.1 Module split (7 files)
+
+Current structure concentrates 4+ responsibilities in `extension.ts`. Target:
 
 ```
 src/
 ├── extension.ts        Thin entry — activate/deactivate wiring only
-├── discord-client.ts   Discord RPC connection, reconnect, cleanup lifecycle
-├── presence.ts         Presence payload construction from current state
-├── config.ts           Settings reader + change listener
+├── discord-client.ts   Discord RPC connection, reconnect, lifecycle cleanup
+├── presence.ts         Presence payload construction from state + config
+├── config.ts           Settings reader + change-event listener
 ├── commands.ts         Command registrations (toggle)
-├── state.ts            Mutable runtime state (paused flag, current language, start timestamp, last word)
-└── words.ts            Word list + anti-duplicate picker accepting an arbitrary word pool
+├── state.ts            Mutable runtime state (paused, language, timestamps, recent-word ring buffer, idle status, debug session, focused element)
+└── words.ts            Word list + anti-duplicate picker + rarity tiers + time-based pools
 ```
 
-### Module responsibilities
+### 2.2 Module responsibilities
 
 | Module | Exports | Depends on |
 |---|---|---|
 | `extension.ts` | `activate`, `deactivate` | all others |
-| `discord-client.ts` | `connect()`, `disconnect()`, `isReady()`, `pushPresence(payload)` | — |
-| `presence.ts` | `buildPresencePayload(state, config)` → `SetActivity` object or `null` | `words.ts`, types from `discord-client.ts` |
+| `discord-client.ts` | `connect()`, `disconnect()`, `isReady()`, `pushPresence(payload)`, `clearPresence()` | — |
+| `presence.ts` | `buildPresencePayload(state, config)` → `SetActivity \| null` | `words.ts`, shared types |
 | `config.ts` | `readConfig()` → `Config`, `onConfigChange(cb)` → Disposable | `vscode` API |
-| `commands.ts` | `registerCommands(context)` → Disposable[] | `state.ts`, `discord-client.ts`, `presence.ts` |
-| `state.ts` | `state: MutableState` singleton + setters (`paused`, `currentLanguage`, `startTimestamp`, `lastWord`) | — |
-| `words.ts` | `WORDS` const, `getNextWord(pool: readonly string[], prev?: string)` → string | — |
+| `commands.ts` | `registerCommands(context, deps)` → Disposable[] | `state.ts`, `discord-client.ts`, `presence.ts` |
+| `state.ts` | `state: MutableState` singleton + setters: `paused`, `currentLanguage`, `startTimestamp`, `recentWords` (last 3 ring buffer), `isIdle`, `debugActive`, `focusContext` | — |
+| `words.ts` | `WORDS` const, `getNextWord(pool, recentWords, options)` → string, `buildPool(config, state)` → readonly string[] | — |
 
-### Data flow
+### 2.3 Data flow
 
 ```
 activate()
@@ -83,239 +106,397 @@ activate()
   → state.initialize(startTimestamp, initialLanguage)
   → discord-client.connect()
     on 'ready' → cycle interval → presence.buildPresencePayload → discord-client.pushPresence
-  → config.onConfigChange → restart interval if cycleSpeed changed, push new payload otherwise
+  → config.onConfigChange → restart interval if cycleSpeed changed; push new payload otherwise
   → commands.registerCommands
-  → vscode.window.onDidChangeActiveTextEditor → state.setLanguage → immediate payload push
+  → vscode.window.onDidChangeActiveTextEditor → state.setLanguage + update focus context → push
+  → vscode.window.onDidChangeWindowState → state.isIdle + idle-behavior handler
+  → vscode.debug.onDidStartDebugSession / onDidTerminateDebugSession → state.debugActive → push
+  → vscode.window.onDidChangeActiveTerminal → state.focusContext = 'terminal' → push
 
 toggle command
-  → state.setPaused(!state.isPaused)
-  → if paused: clear interval, push static "Paused" payload (or clear presence)
-  → if resumed: push fresh payload, restart interval
+  → state.paused = !state.paused
+  → if paused: clear interval, discord-client.clearPresence()
+  → if resumed: push fresh, restart interval
 
 deactivate()
   → discord-client.disconnect() (destroys client cleanly)
   → clear all intervals / timeouts
+  → dispose all listeners
 ```
 
-## Settings Schema
+---
 
-Registered under `contributes.configuration` in `package.json`:
+## 3. Discord presence display — full field map
 
-| Key | Type | Default | Bounds / values | Applied |
+### 3.1 Field-by-field breakdown
+
+Every field Discord renders, with its source, config toggle, and default.
+
+| Field | What Discord does with it | Content source | Config toggle | Default |
 |---|---|---|---|---|
-| `claudeSpinner.cycleSpeed` | number (seconds) | `10` | min `5`, max `120` | Live: restart interval |
-| `claudeSpinner.customWords` | string[] | `[]` | Each item 1-128 chars | Live: next cycle picks from merged pool |
-| `claudeSpinner.showLanguage` | boolean | `true` | — | Live: next payload push |
-| `claudeSpinner.showElapsedTime` | boolean | `true` | — | Live: next payload push |
-| `claudeSpinner.showWorkspace` | boolean | `true` | — | Live: reserved for v1.1 (registered now, no effect in v1.0) |
+| Application name | "Playing X" prefix + standalone mentions | Discord Developer Portal (not code) | — | **§9a TBD** |
+| `type` | Activity category (Playing/Streaming/etc.) | Constant `0` (Playing) | — | `0` |
+| `statusDisplayType` | What shows in the bold member-list label | Constant `2` (details) | — | `2` |
+| `details` (line 1) | Big bold line in popup, member-list label | Current cycling word + `"..."` | `cycleWords` | on — word rotates |
+| `state` (line 2) | Smaller line under details | `"Working in {language}"` + optional workspace suffix, or smart variant | `showLanguage`, `showWorkspace`, `smartState` | language on, workspace off, smart on |
+| `timestamps.start` | "X:XX elapsed" line | Activation timestamp | `showElapsedTime` | on |
+| `assets.large_image` (key) | Big icon in popup | Constant key, uploaded to Discord Portal | — | `vscode-spinner` |
+| `assets.large_text` | Tooltip on large image hover | Constant string | — | `"Visual Studio Code"` |
+| `assets.small_image` (key) | Small overlay in corner of large image | Language icon key if found, else Claude logo | `showLanguageIcon` | on — language icon with fallback |
+| `assets.small_text` | Tooltip on small image hover | Display name of language, or `"Powered by Claude Code"` | — | language name if icon shown |
 
-### Defaults reasoning
+### 3.2 Member list (compact, always visible)
 
-- `cycleSpeed: 10` — 15s felt too slow in user testing; 10s is snappy without spam. Discord rate limit is ~1 update / 4s, so `min: 5` is safe.
-- `customWords: []` — additive to the built-in 187 words, not replacement. Users can extend the list without losing defaults.
-- All display toggles default `true` — first-run shows the richest presence.
-- `showWorkspace` registered in v1.0 schema with a no-op implementation so users see a full settings surface and we avoid schema churn on v1.1.
+What people see without clicking anyone:
 
-### Live-reload semantics
+```
+Playing {ApplicationName}
+{currentWord}...
+```
 
-`vscode.workspace.onDidChangeConfiguration` triggers a re-read. Change response:
+### 3.3 Profile popup (expanded on click)
 
-- `cycleSpeed` changed → clear existing interval, start new one at new speed, push immediate payload.
-- Any display toggle changed → rebuild payload, push immediately.
-- `customWords` changed → no side effect until next cycle tick (word pool is read per-tick).
+```
+Playing {ApplicationName}
+{currentWord}...
+{state line — see 3.4}
+{elapsed time}
+[large image]   [small image overlay]
+```
 
-## Discord Application Identity
+### 3.4 State line composition (priority order)
 
-### Rebrand targets
+1. `paused === true` → no payload rendered at all (presence cleared via §7; this entire field map is inapplicable)
+2. `smartState === true && debugActive === true` → `"Debugging in {language}"`
+3. `smartState === true && focusContext === 'diff'` → `"Reviewing in {language}"`
+4. `smartState === true && focusContext === 'terminal'` → `"In the terminal"`
+5. `currentLanguage === undefined` → state line omitted (clean — no "Exploring" fallback in v1.0)
+6. Default → `"Working in {language}"`
+7. After steps 2/3/4/6 complete: if `showWorkspace === true && workspaceName !== undefined` → append `" — {workspaceName}"`. Step 5 (omitted) has nothing to append to.
+
+If `showLanguage === false`, the entire state line is suppressed.
+
+### 3.5 Idle mode
+
+When `idleBehavior` triggers (see §5), presence transitions:
+
+- `"slow"` (default): cycle interval slows from `cycleSpeed` to `cycleSpeed × 4` (max 120s clamped)
+- `"pause"`: clear interval, keep last presence visible
+- `"clear"`: clear interval + clear presence entirely
+- `"none"`: no behavior change
+
+On focus regain: push fresh presence immediately, restore normal cycle.
+
+---
+
+## 4. Settings schema (13 keys)
+
+Registered under `contributes.configuration` in `package.json`. All settings live-reload unless noted.
+
+| Key | Type | Default | Bounds | Description (user-facing) |
+|---|---|---|---|---|
+| `claudeSpinner.enabled` | boolean | `true` | — | Master switch; when false, disconnects from Discord entirely |
+| `claudeSpinner.cycleSpeed` | number (seconds) | `15` | 5–120 | How often the rotating word changes. Minimum 5s respects Discord's rate limit |
+| `claudeSpinner.cycleWords` | boolean | `true` | — | If false, picks one word at activation and doesn't rotate |
+| `claudeSpinner.customWords` | string[] | `[]` | each 1–128 chars | Extra words added to the built-in list |
+| `claudeSpinner.showLanguage` | boolean | `true` | — | Show "Working in X" line |
+| `claudeSpinner.showWorkspace` | boolean | **`false`** | — | **Off by default for privacy.** Appends workspace folder name to the state line |
+| `claudeSpinner.showElapsedTime` | boolean | `true` | — | Show session elapsed time |
+| `claudeSpinner.showLanguageIcon` | boolean | `true` | — | Use language-specific icon as small image; falls back to Claude logo if no icon exists for the language |
+| `claudeSpinner.smartState` | boolean | `true` | — | Detects debugging, diff review, and terminal focus to vary the state line |
+| `claudeSpinner.idleBehavior` | enum | `"slow"` | `"slow"` / `"pause"` / `"clear"` / `"none"` | What happens when VS Code loses focus for `idleThresholdMinutes` |
+| `claudeSpinner.idleThresholdMinutes` | number | `5` | 1–60 | Minutes of inactivity before idle mode engages |
+| `claudeSpinner.wordRarity` | boolean | `false` | — | Opt-in weighted random: common words more likely, rare words rarer |
+| `claudeSpinner.timeBasedPools` | boolean | `false` | — | Opt-in bias toward warming-up / in-zone / deep-session word groupings based on session length |
+
+### 4.1 Live-reload semantics
+
+`vscode.workspace.onDidChangeConfiguration` re-reads:
+
+- `enabled` off → `discord-client.disconnect()`; on → `connect()`
+- `cycleSpeed` → clear + restart interval at new speed + push immediate payload
+- `idleThresholdMinutes` → reset idle timer with new threshold
+- Any display toggle (`showLanguage`, `showWorkspace`, `showElapsedTime`, `showLanguageIcon`, `smartState`, `cycleWords`) → rebuild and push payload
+- `customWords`, `wordRarity`, `timeBasedPools` → no immediate push; next cycle uses new settings
+
+---
+
+## 5. Word selection
+
+### 5.1 Anti-duplicate picker
+
+`getNextWord(pool, recentWords, options)` returns a word from `pool` not in `recentWords`. `recentWords` is a ring buffer of the last 3 emitted words stored in `state`.
+
+Adaptive sizing: effective exclusion window = `min(3, floor(pool.length / 2))`. Prevents infinite loops on tiny pools (e.g., if user sets `customWords` + filters to 2 total, window shrinks to 1).
+
+Short-circuit: if `pool.length === 1`, return `pool[0]` without exclusion check.
+
+### 5.2 Rarity tiers (`wordRarity: true`)
+
+Built-in word classification lives in `words.ts` as a map `word → tier`:
+
+- **Common** (~70% of picks): straightforward action words — `Thinking`, `Working`, `Coding`, `Building`, etc.
+- **Uncommon** (~25% of picks): colorful action words — `Beboppin'`, `Moonwalking`, `Spelunking`, etc.
+- **Rare** (~5% of picks): absolute bangers — `Flibbertigibbeting`, `Prestidigitating`, `Whatchamacalliting`, etc.
+
+Default (off): uniform random across all words. Custom words classified as common.
+
+### 5.3 Time-based pools (`timeBasedPools: true`)
+
+Session elapsed time determines bias:
+
+- **0–30 min (warming up)**: higher weight for `Brewing`, `Simmering`, `Percolating`, `Incubating`, `Germinating`, etc.
+- **30–120 min (in the zone)**: higher weight for `Computing`, `Synthesizing`, `Orchestrating`, `Architecting`, etc.
+- **120+ min (deep session)**: higher weight for `Hyperspacing`, `Transmuting`, `Prestidigitating`, etc.
+
+Biased ≠ exclusive; out-of-pool words still appear, just less often. Built-in classification; custom words get "wildcard" tier (always eligible).
+
+Rarity and time-based pools compose: if both are on, rarity tier applies within the biased pool.
+
+---
+
+## 6. Discord application rebrand
+
+### 6.1 Rebrand targets
 
 | Field | Before | After |
 |---|---|---|
-| Discord app name | "Attention" | **"Claude Spinner"** |
-| App Client ID | `1494346699861397636` (in code) | New ID from new Discord app (recommended clean slate) |
-| `largeImageKey` | `claude-logo` | `vscode-spinner` (new custom icon) |
+| Discord app name | `Attention` | **§9a TBD-in-plan** (provisional `Coding`) |
+| Client ID | `1494346699861397636` in code | New ID from fresh Discord app |
+| `largeImageKey` | `claude-logo` | `vscode-spinner` (new custom icon — see §8) |
 | `largeImageText` | `"Claude"` | `"Visual Studio Code"` |
-| `smallImageKey` | — (unused) | `claude-logo` (reuse existing asset) |
-| `smallImageText` | — | `"Powered by Claude Code"` |
+| `smallImageKey` | unused | `lang-{languageId}` (mapped) or `claude-logo` (fallback) |
+| `smallImageText` | unused | `"{Language}"` or `"Powered by Claude Code"` |
 
-### Why "Claude Spinner" and not "Visual Studio Code"
+### 6.2 Language icons inventory (~25)
 
-Discord's detectable-applications list includes Visual Studio Code as an official first-party entry. Naming a user-created application "Visual Studio Code" (or close variants like "VS Code", "Code") triggers Discord's impersonation rules and gets the app rejected or invisible. "Claude Spinner" is distinct, matches the VS Code Marketplace listing name, and VS Code identity comes through visually via the large-image tooltip and icon design rather than the "Playing X" line.
+Small-image keys uploaded to Discord Developer Portal under Rich Presence → Art Assets:
 
-### Presence display — before / after
+**Tier 1 (top 10):** `lang-typescript`, `lang-javascript`, `lang-python`, `lang-rust`, `lang-go`, `lang-java`, `lang-cpp`, `lang-csharp`, `lang-html`, `lang-css`
 
-**Before (member-list sidebar):**
-```
-Playing Attention
-Ruminating...
-```
+**Tier 2 (next 15):** `lang-ruby`, `lang-php`, `lang-swift`, `lang-kotlin`, `lang-dart`, `lang-lua`, `lang-elixir`, `lang-haskell`, `lang-scala`, `lang-shell`, `lang-sql`, `lang-json`, `lang-yaml`, `lang-markdown`, `lang-c`
 
-**After (member-list sidebar):**
-```
-Playing Claude Spinner
-Ruminating...
-```
+Mapping: VS Code's `languageId` (lowercase, hyphen-separated) → asset key with `lang-` prefix. Exceptions noted in a translation map in `presence.ts` (e.g., `javascriptreact` → `lang-javascript`).
 
-**Before (profile popup):**
-```
-Playing Attention
-Ruminating...
-Working in TypeScript
-03:12 elapsed
-[Claude logo, tooltip: Claude]
-```
+Fallback chain: `lang-{id}` → `claude-logo`. Never blank.
 
-**After (profile popup):**
-```
-Playing Claude Spinner
-Ruminating...
-Working in TypeScript
-03:12 elapsed
-[VS Code icon, tooltip: Visual Studio Code]
-  [Claude logo overlay, tooltip: Powered by Claude Code]
-```
+### 6.3 User actions (Discord Developer Portal)
 
-### Icon design direction (user deliverable)
+1. Create new Discord Application at https://discord.com/developers/applications (fresh, not rename)
+2. Name it per **§9a** decision
+3. Upload 512×512 application icon (per **§8** decision)
+4. Upload Rich Presence art assets:
+   - `vscode-spinner` (large image per §8 design)
+   - `claude-logo` (overlay / fallback)
+   - All 25 `lang-*` icons (language overlays)
+5. Share the new Application ID → implementation swaps `CLIENT_ID` constant
+6. Delete the old "Attention" app
 
-The large-image icon should communicate "VS Code" visually. Design direction:
+---
 
-- Evoke an editor cursor, bracket, or file icon — **not** a pixel-accurate VS Code logo reproduction
-- Use a blue accent that vibes with VS Code without replicating Microsoft's exact hex
-- Keep the 512×512 canvas with transparent background
-- Small image (overlay) stays as the existing Claude logo
+## 7. Commands
 
-**Trademark note:** directly compositing Microsoft's VS Code logo + Anthropic's Claude logo into a single derivative icon is technically against both companies' brand guidelines. An original icon that *evokes* "code editor with a Claude accent" is legally safer and usually reads just as clearly.
+### 7.1 `claudeSpinner.toggle`
 
-### User actions (manual, Discord Developer Portal)
+Registered in `contributes.commands`; no default keybinding.
 
-Recommended path: **create a new Discord application** rather than renaming the existing "Attention" one. Reason: clean slate, no baggage, easy to delete the old app.
+- **Active (default):** normal presence cycling
+- **Paused:** clears the cycle interval, calls `discord-client.clearPresence()` — presence disappears from Discord entirely, matching the user intent of "hide my status right now"
+- **Resume:** pushes fresh presence, restarts interval
 
-1. Go to https://discord.com/developers/applications → **New Application**
-2. Name: **`Claude Spinner`**
-3. General Information → **Application Icon** → upload 512×512 PNG (new custom icon)
-4. Copy the **Application ID** — this becomes the new `CLIENT_ID` constant
-5. Rich Presence → **Art Assets** → Add Image(s):
-   - Key: `vscode-spinner` → upload the large-image icon
-   - Key: `claude-logo` → upload or reuse existing Claude logo (becomes the small-image overlay)
-6. Share the new Application ID with the implementation flow
+On deactivate, paused state does not persist across VS Code restarts (clean slate each session).
 
-Delete the old "Attention" app from the portal after the new one is confirmed working.
+---
 
-## Commands
+## 8. Icon design — first-class deliverable
 
-### `claudeSpinner.toggle`
+### 8.1 Why this matters
 
-Registered under `contributes.commands` in package.json. No default keybinding — users bind if they want.
+The icon appears at three sizes:
 
-- **When active (resumed, default):** behaves as before
-- **When paused:** clears the cycle interval, pushes a final `buildPresencePayload(..., { paused: true })` which renders as `details: "Paused"` with other fields intact (language, elapsed time, icons)
-- Toggle flips the `state.isPaused` flag and re-triggers the appropriate path
+- **16×16** — Discord member list (tiny)
+- **128×128** — marketplace publisher logo slot + Discord activity card
+- **512×512** — marketplace listing header + Discord Developer Portal app icon
 
-## Bug Fixes
+Each size has different legibility demands. The marketplace listing is where acquisition happens; Discord is where retention happens. The icon carries both.
 
-### Fix 1 — Back-to-back duplicate words
+### 8.2 Design brief
 
-**Problem:** `getRandomWord` uses uniform random sampling, so identical consecutive picks are possible (probability 1/187 ≈ 0.53% per transition). At 10s cycle speed, a real user hits this ~3× per hour of coding. It reads as "the spinner is frozen" even when it isn't.
+**Primary identity signal:** the icon should make a Discord viewer understand "this is someone coding" in one glance, without reading any text.
 
-**Fix:** Replace `getRandomWord()` with `getNextWord(pool: readonly string[], prev?: string)` that re-rolls when the pick equals `prev`. Loop bound is bounded — re-roll probability is ~0.53% per iteration (or higher if `pool` is small after custom-word filtering), so the expected number of re-rolls is ~0.005 on the default pool. In practice loops once 99.47% of the time. The `pool` parameter is the concatenation of built-in `WORDS` + `config.customWords`, computed per-tick so config changes take effect on the next cycle. Caller passes `state.lastWord` as `prev`; after the pick, caller writes back to `state.lastWord`.
+**Must:**
+- Work at 16×16 (simple silhouette, high-contrast edges)
+- Work on both light and dark Discord themes
+- Look distinctive at 512×512 (not generic)
+- Avoid Microsoft VS Code logo reproduction (trademark)
+- Avoid Anthropic Claude logo reproduction (trademark)
+- Evoke "code editor" OR "rotating word" visually (user pick)
+- Color palette compatible with VS Code's general "blue editor" vibe without copying the specific Microsoft shade
 
-**Edge case:** if `pool.length === 1`, the anti-duplicate re-roll would infinite-loop. Short-circuit: if `pool.length <= 1`, return `pool[0]` without the re-roll check.
+**Nice-to-have:**
+- Subtle motion/rotation cue (suggests the cycling-word behavior)
+- Accent color that nods to Claude's palette (orange-adjacent)
 
-**Test:** Call `getNextWord(WORDS, prev)` 10,000 times in a loop, assert no consecutive match. Separate test for `pool.length === 1` returns that single word. Separate test for merging built-in + custom words.
+### 8.3 Iteration process (plan step — §9c)
 
-### Fix 2 — Reconnect resource leak
+Not a pre-spec decision. During implementation:
 
-**Problem:** `connectToDiscord()` overwrites `client = new Client(...)` without destroying the prior instance. If reconnection fires mid-flight (rapid Discord restart, unstable IPC), the old client's IPC socket and event listeners never get cleaned up. Not crash-level but real.
+1. I generate 3-5 direction boards (text description + ASCII mock + Unicode glyph composition)
+2. You pick a direction (or redirect)
+3. I refine chosen direction with 2-3 variants
+4. You pick a variant or commission a designer with the brief
+5. Final PNG produced at 512×512, 128×128, 16×16 — uploaded to Discord Portal + committed to repo
 
-**Fix:** At the top of `connect()` in `discord-client.ts`, if a client instance exists, call `client.destroy().catch(() => {})` and null it before creating the new one. Similarly in the `catch` block of the login attempt.
+---
 
-**Test:** Vitest mock for `Client` with a spy on `destroy`. Call `connect()` twice in sequence, assert `destroy` called once on the first client.
+## 9. Iterate-in-plan items
 
-### Fix 3 — No-editor-focus edge case
+Three naming/design decisions are deliberately **not** resolved in this spec. They get dedicated plan tasks with explicit user-review loops.
 
-**Problem:** When focus is on the terminal, output panel, debug console, or no open editors, `currentLanguage` is `undefined` and the `state` line silently disappears from the presence payload. Not broken per se, but surprising when the presence appears to "half-update."
+### 9a. Discord application name
 
-**Fix:** When `currentLanguage` is undefined, omit the state field cleanly (Discord renders missing fields well — no empty line artifact). Document this behavior so it's not mistaken for a bug later. Future v1.1 work may add an "Exploring" fallback, but v1.0 keeps behavior clean and minimal.
+- **Provisional placeholder:** `Coding`
+- **Constraints:** must work as "Playing X" AND standalone "X"; dev-related; no trademark adjacency
+- **Iteration task:** brainstorm 5-8 candidates, pick with you, set at Discord Developer Portal
+- **Blocking:** icon brief (§8), presence payload wiring (§6)
 
-**Test:** Pass `undefined` language to `buildPresencePayload`, assert returned object has no `state` key (not `state: undefined`).
+### 9b. Extension marketplace name + package identifier
 
-### Elapsed-time semantics (documentation, not a fix)
+- **Provisional placeholder:** `Coding Status for Discord` (displayName) / `coding-status-for-discord` (package `name`)
+- **Constraints:** marketplace SEO, doesn't start with "Claude" (Anthropic guidelines), describes what it *does*
+- **Iteration task:** brainstorm 3-5 alternatives, pick with you, update package.json
+- **Blocking:** CHANGELOG entry, README title, marketplace publish step
 
-`startTimestamp` is captured once on `activate()` and survives Discord reconnects. This is the intended behavior — matches Discord's convention across apps and games — and is documented here so future work doesn't "fix" it.
+### 9c. Icon design
 
-## Testing Strategy
+- **Provisional placeholder:** current `assets/icon.png` stays until replaced
+- **Iteration task:** direction boards → pick → variant iteration → final PNG
+- **Blocking:** Discord Dev Portal upload, marketplace publish step
 
-### Unit tests (vitest)
+All three can run in parallel with unrelated implementation work.
 
-- `words.test.ts` — list integrity + anti-duplicate behavior of `getNextWord`
-- `config.test.ts` — default values, bounds enforcement, change-notification plumbing (mock `vscode.workspace.getConfiguration`)
-- `presence.test.ts` — payload structure for each toggle combination (showLanguage on/off, paused on/off, etc.), missing-language behavior
-- `discord-client.test.ts` — mock `Client`, assert cleanup on reconnect, assert interval clears on disconnect
+---
 
-### Integration smoke test
+## 10. Bug fixes
 
-- Launch VS Code extension host with a mock Discord IPC server
-- Assert `activate()` triggers connection and pushes at least one presence within 2s
-- Assert `deactivate()` cleanly tears down without throwing
+### 10.1 Back-to-back duplicates (expanded to last-N)
 
-Manual verification before shipping: install the packaged `.vsix` locally via `code --install-extension`, open a real Discord client, verify presence appears with correct rebranded name/icons.
+**Problem:** uniform random can pick identical consecutive words. At slow cycle speeds this reads as frozen.
 
-## Deployment sequencing
+**Fix:** `getNextWord(pool, recentWords, options)` re-rolls if pick is in `recentWords`. Ring buffer of last 3 kept in `state`. Adaptive window shrinks on tiny pools.
 
-### User actions (blocking)
+**Test:** 10,000 calls, assert no pick is in `recentWords` at time of emission; separate test for tiny pool (1 word) doesn't loop.
 
-1. Create new Discord Application named "Claude Spinner" in the Developer Portal
-2. Upload new custom icon as the application icon (512×512 PNG)
-3. Upload Rich Presence art assets (`vscode-spinner` large, `claude-logo` small)
-4. Share the new Application ID with the implementation flow
+### 10.2 Reconnect resource leak
 
-These can happen in parallel with code implementation — the Client ID only needs to be swapped in near the end.
+**Problem:** `connectToDiscord()` overwrites `client` without destroying the prior instance.
 
-### Code actions (in implementation plan)
+**Fix:** At top of `connect()`, if client exists, `await client.destroy().catch(() => {})` and null it before creating new.
 
-1. Module split refactor (no behavior change — pure restructure)
-2. Settings schema + config reader + change listener
-3. Commands module + toggle implementation
-4. Presence module (uses config flags, supports paused state)
-5. Anti-duplicate word picker
-6. Reconnect cleanup fix
-7. Swap CLIENT_ID + update presence payload keys/texts (blocked on step 4 of user actions)
-8. CHANGELOG + README + version bump to 1.0.0
-9. Build + test + `vsce package` + local .vsix install verification
-10. `vsce publish`
+**Test:** Vitest mock for `Client` with spy on `destroy`. Call `connect()` twice; assert destroy called once on first client.
 
-## Non-goals
+### 10.3 No-editor-focus behavior
 
-Explicit non-goals to prevent scope creep during implementation:
+**Problem:** When focus isn't on an editor (terminal, output panel, no open tabs), state line silently disappears.
 
-- **Idle detection.** Window-focus-based cycling changes — deferred to v1.1.
-- **Language-specific small icons.** Requires 15-20 Discord assets uploaded manually and a mapping table — deferred.
-- **Smart state text** (debugging, reviewing, terminal) — deferred.
-- **Workspace name in state line** — setting registered now, behavior ships v1.1.
-- **Status bar item** for paused/active indicator — deferred; the setting + command are enough.
-- **Telemetry.** None, ever.
-- **Network calls beyond Discord IPC.** None.
+**Fix:** Specified in §3.4 — state line omitted cleanly when language is undefined (no ghost behavior). Smart state (§3.4 steps 2-4) handles terminal/debug/diff cases explicitly.
 
-## Risks & open items
+**Test:** Pass `undefined` language, assert returned payload has no `state` key. Pass with terminal focus, assert state line reflects it.
+
+### 10.4 Elapsed-time semantics (docs only)
+
+`startTimestamp` captured once on `activate()`, survives Discord reconnects. Matches Discord convention; documented here so future changes don't "fix" it.
+
+---
+
+## 11. Testing strategy
+
+### 11.1 Unit tests (vitest)
+
+- `words.test.ts` — list integrity, `getNextWord` anti-duplicate (ring buffer), tiny-pool short-circuit, rarity weighting distribution, time-based pool bias, custom words merging
+- `config.test.ts` — default values, bounds clamping, change-notification plumbing (mock `vscode.workspace.getConfiguration`)
+- `presence.test.ts` — every field for every toggle combination, smart-state priority ordering, paused behavior (omit state/clear presence), language-icon fallback chain, workspace-name append behavior
+- `discord-client.test.ts` — mock `Client`, assert cleanup on reconnect, interval clears on disconnect, enable/disable switch
+
+### 11.2 Integration smoke
+
+Launch VS Code extension host + mock Discord IPC:
+
+- `activate()` connects and pushes at least one presence within 2s
+- `deactivate()` tears down without throwing
+- Toggle command flips state correctly
+
+Manual verification: install packaged `.vsix` via `code --install-extension`, open real Discord, verify rebranded presence.
+
+---
+
+## 12. Deployment sequencing
+
+### 12.1 User actions (unblock-in-parallel)
+
+- Create new Discord Application per §6.3 (blocked on §9a naming)
+- Upload icon per §8 (blocked on §9c design iteration)
+- Upload 25 language icons (can be outsourced to any open-source icon set, Devicon, Simple Icons, etc.)
+- Approve §9a / §9b / §9c during plan execution
+
+### 12.2 Code actions (plan order)
+
+1. Gitignore `docs/superpowers/plans/` + untrack existing plan
+2. Module split refactor (no behavior change — pure restructure)
+3. Settings schema + config reader + live-reload
+4. `state.ts` expansion (paused, recent-words, idle, focus context)
+5. Anti-duplicate picker + rarity tiers + time-based pools
+6. Idle detection + smart state listeners
+7. Language icon mapping + small-image fallback
+8. `toggle` command + pause/resume presence handling
+9. Reconnect cleanup bug fix
+10. Discord payload restructure with language-icon logic
+11. §9a naming iteration → Discord app created → Client ID swapped
+12. §9b extension rename → package.json updated
+13. §9c icon iteration → PNG produced → asset uploaded
+14. CHANGELOG + README updates
+15. Version bump to 1.0.0
+16. Build + test + `vsce package` + local install verification
+17. `vsce publish`
+
+Steps 11-13 are the "iterate-in-plan" checkpoints where user review is required.
+
+---
+
+## 13. Risks & open items
 
 | Risk | Mitigation |
 |---|---|
-| Discord rejects "Claude Spinner" as similar to detectable apps | Very unlikely (it's clearly distinct), but fallback name could be "Claude Code Spinner" or "Claude's Spinner" |
-| Icon design drags the project | Acceptable minimum is a simple "cursor-in-a-square" shape in VS Code blue — doesn't need to be art |
-| Trademark complaint from Microsoft or Anthropic | Original icon (not logo composite) + descriptive text ("Visual Studio Code" as tooltip) keeps the risk low. If a complaint comes, swap icon + app name — the code doesn't care |
-| Discord rate-limit violation on cycleSpeed=5 | 5s is above the documented ~4s minimum; add a runtime guard that clamps invalid settings values |
-| User sets `customWords` to empty strings or `null` | Config reader filters invalid entries silently; no crash |
+| Discord rejects provisional name "Coding" as a reserved / impersonation term | Low risk, but §9a produces 5-8 candidates to fall back on |
+| Icon design drags timeline | Minimum viable: a single-glyph geometric shape on solid color is acceptable; doesn't need to be art |
+| Language-icon uploads tedious (25 manual uploads) | Recommend using Devicon or Simple Icons PNGs at 128×128 — pre-built, open license |
+| Trademark complaint from Microsoft or Anthropic | Design brief explicitly avoids logo reproduction; name doesn't use "VS Code" or "Claude X"; "Powered by Claude Code" attribution is within Anthropic's published guidelines |
+| User sets `customWords` to empty strings or oversized entries | Config reader filters: non-string, empty, >128 chars → silently dropped |
+| `idleThresholdMinutes` set to 0 | Clamped to minimum 1 at read time |
+| VS Code Profiles feature conflicts with our settings | Our settings are workspace-scoped by default; Profiles handles switching per-workspace already |
 
-## Success criteria
+---
+
+## 14. Success criteria
 
 v1.0 is ready to publish when:
 
-- [ ] All 5 settings keys work and live-reload
-- [ ] `claudeSpinner.toggle` pauses and resumes cleanly
-- [ ] Discord presence shows "Playing Claude Spinner" with the new large icon + Claude small overlay
-- [ ] Same word never appears twice in a row across 10,000 simulated cycles
-- [ ] Reconnect cycles don't leak client instances (verified via mock)
-- [ ] All unit tests pass; integration smoke test passes
+- [ ] All 13 settings work and live-reload correctly
+- [ ] `claudeSpinner.toggle` pauses (clears presence) and resumes cleanly
+- [ ] Idle detection transitions correctly for all 4 behaviors
+- [ ] Smart state correctly detects debug, terminal, and diff-editor contexts
+- [ ] Language icons appear for all 25 tier-1+tier-2 languages; Claude logo fallback works for others
+- [ ] Workspace name appends only when `showWorkspace === true`
+- [ ] Rarity weighting distribution matches spec when enabled
+- [ ] Time-based pool bias matches spec when enabled
+- [ ] Anti-duplicate: same word never in last-3 across 10,000 simulated picks; tiny-pool edge handled
+- [ ] Reconnect cycles don't leak client instances (mock-verified)
+- [ ] Discord presence shows the approved §9a app name with new large icon + language-icon small overlay
+- [ ] Extension renamed to §9b decision in package.json + README + CHANGELOG
+- [ ] §9c final icon committed and uploaded
+- [ ] All unit tests pass; integration smoke passes
 - [ ] `.vsix` packages cleanly and installs locally
-- [ ] README reflects new Discord identity + settings
-- [ ] CHANGELOG has a complete `1.0.0` entry
-- [ ] README has the approved screenshot/GIF uncommented
+- [ ] README reflects new identity + all settings documented
+- [ ] CHANGELOG has complete 1.0.0 entry
+- [ ] Screenshot/GIF captured with final settings and committed to README
+- [ ] `docs/superpowers/plans/` is gitignored and no plan files tracked
