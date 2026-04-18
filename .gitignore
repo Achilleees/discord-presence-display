@@ -1,8 +1,6 @@
 node_modules/
 dist/
 *.vsix
-ROADMAP.md
-assets/logo.html
 .DS_Store
 Thumbs.db
 *.swp
