@@ -8,4 +8,8 @@ dist/**/*.d.ts
 tsconfig.json
 vitest.config.ts
 .gitignore
+.vscodeignore
 package-lock.json
+CLAUDE.md
+*.vsix
+

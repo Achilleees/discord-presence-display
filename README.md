@@ -1,35 +1,98 @@
-# Claude Spinner for Discord
+# Coding Status for Discord
 
-**Your Discord status, now Flibbertigibbeting.**
+**Show what you're working on — at a glance, on Discord.**
 
-A VS Code extension that cycles through the 187 words from Claude Code's loading spinner as your Discord Rich Presence status — rotating every 15 seconds while you work.
+A VS Code extension that turns your editor activity into Discord Rich Presence: the language you're in, the time you've been at it, and a rotating spinner word borrowed from Claude Code's loading animation — so your status reads `Cogitating...`, `Moonwalking...`, or the occasional `Flibbertigibbeting...` while you code.
 
-<!-- TODO: Add screenshot/GIF -->
+<!-- Save your capture to assets/screenshot.gif (or .png) then remove the two comment markers on the line below -->
+<!-- ![Coding Status for Discord cycling words in Discord Rich Presence](assets/screenshot.gif) -->
 
 ---
 
 ## Features
 
-- Zero configuration — install and it works immediately
-- 187 words sourced directly from Claude Code's spinner (Cogitating, Moonwalking, Razzle-dazzling, and more)
-- Shows the current programming language you have open
-- Shows elapsed coding time on your Discord profile
+- Zero configuration — install and it works
+- 187 spinner words from Claude Code, rotating every 15 seconds (configurable)
+- Language detection with per-language icons for 25 common languages
+- Session elapsed time shown on your Discord profile
+- **Smart state:** changes the status line when you're debugging, reviewing a diff, or focused on the terminal
+- **Idle handling:** slows down, pauses, or clears presence when VS Code loses focus for too long
+- **Toggle command:** hide presence any time from the command palette
 - Auto-reconnects if Discord is restarted
-- Silently does nothing if Discord is not running
+- Silently does nothing if Discord isn't running — no errors, no noise
+- No telemetry, no network calls beyond the local Discord IPC socket
 
 ---
 
 ## Install
 
-Search for **Claude Spinner** in the VS Code Extensions panel (`Ctrl+Shift+X`), or install from the Marketplace.
+Search **Coding Status for Discord** in the Extensions panel (`Ctrl+Shift+X`), or install from the Marketplace.
 
-<!-- TODO: Add marketplace badge -->
+<!-- TODO: marketplace badge -->
 
 ---
 
 ## How it works
 
-When VS Code is open and Discord is running on the same machine, the extension connects to Discord over its local IPC socket and sets your Rich Presence status. Every 15 seconds it picks the next word from the list, so your member list status reads something like `Beboppin'...` and your full profile shows the word, the language you're in, and how long you've been coding. No accounts, no API keys, no setup.
+When VS Code is open and Discord is running on the same machine, the extension connects to Discord over its local IPC socket and sets your Rich Presence. Every 15 seconds it rotates to a new spinner word. No accounts, no API keys, no setup.
+
+---
+
+## Commands
+
+| Command | Description |
+|---|---|
+| `Toggle Coding Status Presence` | Pause or resume the presence. Paused clears the presence from Discord entirely. State does not persist across VS Code restarts. |
+
+---
+
+## Settings
+
+All settings live under the `claudeSpinner.*` namespace (internal ID, kept stable across renames) and live-reload on change.
+
+| Setting | Type | Default | What it does |
+|---|---|---|---|
+| `claudeSpinner.enabled` | boolean | `true` | Master switch. Off → disconnect from Discord. |
+| `claudeSpinner.cycleSpeed` | number (5–120) | `15` | Seconds between word rotations. 5s minimum respects Discord's rate limit. |
+| `claudeSpinner.cycleWords` | boolean | `true` | Rotate the word. Off → pick one word on activation and keep it. |
+| `claudeSpinner.customWords` | string[] | `[]` | Extra words mixed into the rotation. Each entry 1–128 characters. |
+| `claudeSpinner.showLanguage` | boolean | `true` | Show the `Working in X` line beneath the cycling word. |
+| `claudeSpinner.showWorkspace` | boolean | `false` | Append the workspace folder name to the status line. Off by default for privacy. |
+| `claudeSpinner.showElapsedTime` | boolean | `true` | Show the session elapsed time on your profile. |
+| `claudeSpinner.showLanguageIcon` | boolean | `true` | Use a per-language icon as the small overlay. Falls back to the Claude logo. |
+| `claudeSpinner.smartState` | boolean | `true` | Vary the status line when debugging, reviewing a diff, or focused on the terminal. |
+| `claudeSpinner.idleBehavior` | `slow` / `pause` / `clear` / `none` | `slow` | What happens when VS Code loses focus past the idle threshold. |
+| `claudeSpinner.idleThresholdMinutes` | number (1–60) | `5` | Minutes of inactivity before idle mode engages. |
+| `claudeSpinner.wordRarity` | boolean | `false` | Opt-in weighted pick — common (~70%), uncommon (~25%), rare (~5%). |
+| `claudeSpinner.timeBasedPools` | boolean | `false` | Opt-in bias by session length — warming-up, in-the-zone, deep-session word groups. |
+
+### Smart state priority
+
+When `smartState` is on, the status line follows this priority:
+
+1. Debug session active → `Debugging in {language}`
+2. Active tab is a diff editor → `Reviewing in {language}`
+3. Terminal is the active panel → `In the terminal`
+4. Otherwise → `Working in {language}`
+
+Toggle `showWorkspace` to append ` — {workspace}` to any of the above.
+
+### Idle behaviors
+
+When VS Code loses focus for `idleThresholdMinutes`:
+
+- `slow` — the cycle interval quadruples (clamped to 120s)
+- `pause` — cycling stops, last presence stays visible
+- `clear` — cycling stops, presence cleared from Discord
+- `none` — no change, keep cycling normally
+
+Re-focusing pushes a fresh presence immediately and restores the normal cycle.
+
+---
+
+## Language icons
+
+Built-in icons are mapped for 25 languages: TypeScript, JavaScript, Python, Rust, Go, Java, C++, C#, HTML, CSS, Ruby, PHP, Swift, Kotlin, Dart, Lua, Elixir, Haskell, Scala, Shell, SQL, JSON, YAML, Markdown, C. Anything else falls back to the Claude logo.
 
 ---
 
@@ -112,6 +175,14 @@ Zigzagging
 
 - Discord desktop app running on the same machine as VS Code
 - That's it
+
+---
+
+## Privacy
+
+- No telemetry, ever
+- No network calls beyond the local Discord IPC socket
+- `showWorkspace` is off by default — your folder name never leaves your machine unless you turn it on
 
 ---
 

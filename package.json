@@ -1,8 +1,8 @@
 {
-  "name": "discord-presence-display",
-  "displayName": "Claude Spinner for Discord",
-  "description": "Displays rotating Claude Code spinner words as your Discord Rich Presence",
-  "version": "0.1.0",
+  "name": "coding-status-for-discord",
+  "displayName": "Coding Status for Discord",
+  "description": "Shows what you're working on — language, session time, and a rotating spinner word — as your Discord Rich Presence.",
+  "version": "1.0.0",
   "license": "MIT",
   "publisher": "Achilleees",
   "author": {
@@ -45,6 +45,106 @@
     "watch": "tsc --watch",
     "test": "vitest run",
     "package": "vsce package"
+  },
+  "contributes": {
+    "commands": [
+      {
+        "command": "claudeSpinner.toggle",
+        "title": "Toggle Coding Status Presence",
+        "category": "Coding Status"
+      }
+    ],
+    "configuration": {
+      "title": "Coding Status for Discord",
+      "properties": {
+        "claudeSpinner.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Master switch. When off, disconnects from Discord and shows no presence."
+        },
+        "claudeSpinner.cycleSpeed": {
+          "type": "number",
+          "default": 15,
+          "minimum": 5,
+          "maximum": 120,
+          "description": "How often the spinner word rotates, in seconds. Minimum 5 respects Discord's presence rate limit."
+        },
+        "claudeSpinner.cycleWords": {
+          "type": "boolean",
+          "default": true,
+          "description": "Rotate words on the cycle interval. When off, picks one word on activation and keeps it."
+        },
+        "claudeSpinner.customWords": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "default": [],
+          "description": "Extra words to mix into the spinner. Each entry 1–128 characters."
+        },
+        "claudeSpinner.showLanguage": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show a 'Working in X' line below the cycling word."
+        },
+        "claudeSpinner.showWorkspace": {
+          "type": "boolean",
+          "default": false,
+          "description": "Append the workspace folder name to the status line. Off by default for privacy."
+        },
+        "claudeSpinner.showElapsedTime": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show elapsed session time on your Discord profile."
+        },
+        "claudeSpinner.showLanguageIcon": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show a language-specific icon as a small overlay. Falls back to the Claude logo when no icon is mapped."
+        },
+        "claudeSpinner.smartState": {
+          "type": "boolean",
+          "default": true,
+          "description": "Vary the status line when you're debugging, reviewing a diff, or focused on the terminal."
+        },
+        "claudeSpinner.idleBehavior": {
+          "type": "string",
+          "enum": [
+            "slow",
+            "pause",
+            "clear",
+            "none"
+          ],
+          "enumDescriptions": [
+            "Quadruple the cycle interval while idle (clamped to 120 seconds).",
+            "Stop cycling, keep the last presence visible.",
+            "Stop cycling and clear the presence from Discord.",
+            "No change — keep cycling normally."
+          ],
+          "default": "slow",
+          "description": "What happens when VS Code loses focus past the idle threshold."
+        },
+        "claudeSpinner.idleThresholdMinutes": {
+          "type": "number",
+          "default": 5,
+          "minimum": 1,
+          "maximum": 60,
+          "description": "Minutes of VS Code inactivity before idle mode engages."
+        },
+        "claudeSpinner.wordRarity": {
+          "type": "boolean",
+          "default": false,
+          "description": "Opt-in weighted random: common (~70%), uncommon (~25%), rare (~5%)."
+        },
+        "claudeSpinner.timeBasedPools": {
+          "type": "boolean",
+          "default": false,
+          "description": "Opt-in: bias words toward early-session (warming up), mid-session (in the zone), and long-session (deep session) pools."
+        }
+      }
+    }
   },
   "dependencies": {
     "@xhayper/discord-rpc": "^1.3.0"
