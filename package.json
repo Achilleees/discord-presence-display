@@ -9,6 +9,14 @@
     "name": "Achilleees",
     "url": "https://github.com/Achilleees"
   },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Achilleees/discord-presence-display.git"
+  },
+  "homepage": "https://github.com/Achilleees/discord-presence-display#readme",
+  "bugs": {
+    "url": "https://github.com/Achilleees/discord-presence-display/issues"
+  },
   "keywords": [
     "discord",
     "rich-presence",
@@ -22,6 +30,10 @@
   "categories": [
     "Other"
   ],
+  "galleryBanner": {
+    "color": "#5865F2",
+    "theme": "dark"
+  },
   "activationEvents": [
     "onStartupFinished"
   ],
