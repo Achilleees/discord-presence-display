@@ -510,6 +510,74 @@ describe('push mutex', () => {
   });
 });
 
+describe('config-change reconnect path', () => {
+  it('re-enable while unfocused primes idle timer (audit r8 3.1)', async () => {
+    vi.useFakeTimers();
+    __setConfig({
+      'claudeSpinner.enabled': false,
+      'claudeSpinner.idleThresholdMinutes': 1,
+      'claudeSpinner.idleBehavior': 'clear',
+    });
+    mockWindow.state.focused = false;
+    extension.activate(mkContext() as never);
+    await Promise.resolve();
+    // Now re-enable without ever focusing.
+    __setConfig({
+      'claudeSpinner.enabled': true,
+      'claudeSpinner.idleThresholdMinutes': 1,
+      'claudeSpinner.idleBehavior': 'clear',
+    });
+    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+    // @ts-expect-error mock module
+    (await import('vscode')).__emitConfigChange(['claudeSpinner']);
+    await Promise.resolve();
+    await Promise.resolve();
+    if (instances[0]) instances[0].isConnected = true;
+    const readyCall = instances[0].on.mock.calls.find((c: unknown[]) => c[0] === 'ready');
+    const onReady = readyCall![1] as () => void;
+    onReady();
+    // isIdle should be true at ready-time (focused=false + re-enable primed state).
+    // Therefore no setActivity should fire under clear.
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(instances[0].user?.setActivity).not.toHaveBeenCalled();
+  });
+
+  it('re-enable in same save as cycleSpeed change applies both (audit r8 3.2)', async () => {
+    vi.useFakeTimers();
+    __setConfig({
+      'claudeSpinner.enabled': false,
+      'claudeSpinner.cycleSpeed': 15,
+    });
+    extension.activate(mkContext() as never);
+    await Promise.resolve();
+    // User edits settings.json and flips enabled + cycleSpeed at once.
+    __setConfig({
+      'claudeSpinner.enabled': true,
+      'claudeSpinner.cycleSpeed': 42,
+    });
+    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+    // @ts-expect-error mock module
+    (await import('vscode')).__emitConfigChange(['claudeSpinner']);
+    await Promise.resolve();
+    await Promise.resolve();
+    if (instances[0]) instances[0].isConnected = true;
+    const readyCall = instances[0].on.mock.calls.find((c: unknown[]) => c[0] === 'ready');
+    const onReady = readyCall![1] as () => void;
+    onReady();
+    // Drain the ready push and the schedulePush debounce from the
+    // config-change.
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(instances[0].user?.setActivity).toHaveBeenCalled();
+    instances[0].user!.setActivity.mockClear();
+    // No cycle tick at the stale 15s speed.
+    await vi.advanceTimersByTimeAsync(15_500);
+    expect(instances[0].user!.setActivity.mock.calls.length).toBe(0);
+    // A cycle tick fires past the new 42s speed.
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(instances[0].user!.setActivity.mock.calls.length).toBeGreaterThan(0);
+  });
+});
+
 describe('boot-unfocused', () => {
   it('with idleBehavior=clear, first connect keeps presence cleared', async () => {
     vi.useFakeTimers();

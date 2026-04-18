@@ -39,11 +39,20 @@ export function computeConfigTransition(
   ctx: TransitionContext,
 ): ConfigTransition {
   if (!next.enabled) return { ...NO_OP, shutdown: true };
-  if (prev && !prev.enabled && next.enabled) return { ...NO_OP, reconnect: true };
   // Defensive: prev is always defined in production (activate() sets config
   // before the change listener can fire). Kept so the pure function works
   // standalone in tests and doesn't NPE if invoked out of order.
   if (!prev) return { ...NO_OP, schedulePush: true };
+
+  // On disabled→enabled: reconnect, but also honor any other settings that
+  // changed in the same save (e.g., a single settings.json edit that flips
+  // enabled AND updates cycleSpeed / customWords). Re-compute with a
+  // prev-equivalent that already had enabled=true so the usual flags fire.
+  if (!prev.enabled && next.enabled) {
+    const prevEquivalent: Config = { ...prev, enabled: true };
+    const base = computeConfigTransition(prevEquivalent, next, ctx);
+    return { ...base, reconnect: true };
+  }
 
   const poolAffectingChanged =
     !sameStringSet(prev.customWords, next.customWords) ||

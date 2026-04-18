@@ -22,7 +22,7 @@ Ship `1.0.0` from the pre-release `0.1.0` prototype. Rich configuration for powe
 
 ---
 
-## Architecture — 7-file split
+## Architecture — 8-file split
 
 Current `extension.ts` concentrates 4+ responsibilities. Target layout:
 
@@ -31,6 +31,7 @@ src/
 ├── extension.ts        Thin entry — activate/deactivate wiring only
 ├── discord-client.ts   Discord RPC connection, reconnect, lifecycle cleanup
 ├── presence.ts         Presence payload construction from state + config
+├── transitions.ts      Pure computeConfigTransition for live-reload logic
 ├── config.ts           Settings reader + change-event listener
 ├── commands.ts         Command registrations (toggle)
 ├── state.ts            Mutable runtime state
@@ -45,7 +46,8 @@ src/
 | `discord-client.ts` | `connect`, `disconnect`, `isReady`, `pushPresence`, `clearPresence` | — |
 | `presence.ts` | `buildPresencePayload(state, config)` → `SetActivity \| null` | `words.ts`, types |
 | `config.ts` | `readConfig()` → `Config`, `onConfigChange(cb)` → `Disposable` | `vscode` |
-| `commands.ts` | `registerCommands(context, deps)` → `Disposable[]` | `state`, `discord-client`, `presence` |
+| `commands.ts` | `registerCommands(deps)` → `Disposable[]` | — |
+| `transitions.ts` | `computeConfigTransition(prev, next, ctx)` → `ConfigTransition` | `config` (types only) |
 | `state.ts` | `createState(...)` factory + `State` type — `paused`, `currentLanguage`, `startTimestamp`, `recentWords` (ring buffer of last 3), `isIdle`, `debugActive`, `focusContext`, `workspaceName`, `pinnedWord`. Instance owned by `extension.ts` | — |
 | `words.ts` | `WORDS`, `getNextWord(pool, recent)`, `buildPool(config)` | — |
 

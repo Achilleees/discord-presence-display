@@ -87,17 +87,17 @@ async function pushImmediate(): Promise<void> {
       return;
     }
 
-    await discord.pushPresence(payload);
+    const delivered = await discord.pushPresence(payload);
 
     // Guard against deactivate racing with an in-flight push.
     if (!state || !config) return;
 
     // For cycling: commit to the ring regardless of push success so the
     // anti-duplicate picker advances. For pinned mode: only commit if
-    // the push actually reached Discord, otherwise a mid-flight
-    // disconnect would pin a word that never appeared to the user.
+    // pushPresence reported success — a transient IPC write failure
+    // shouldn't pin a word Discord never displayed.
     if (config.cycleWords) state.recentWords.add(word);
-    else if (discord.isReady()) state.pinnedWord = word;
+    else if (delivered) state.pinnedWord = word;
   } finally {
     pushing = false;
     if (pushDirty) {
@@ -303,8 +303,14 @@ function handleConfigChange(next: Config): void {
   }
 
   if (transition.reconnect) {
+    // Re-prime isIdle from the current focus state so the re-enable
+    // respects the user's current context (AFK during disable → idle).
+    state.isIdle = !vscode.window.state.focused;
     void connectFlow();
-    return;
+    // Arm or exit the idle timer based on current focus.
+    onWindowStateChange();
+    // Fall through so any other changes that came in the same save
+    // (cycleSpeed, customWords, idleBehavior, etc.) still apply.
   }
 
   if (transition.clearPinnedWord) state.pinnedWord = undefined;

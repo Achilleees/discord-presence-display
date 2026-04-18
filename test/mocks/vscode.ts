@@ -65,7 +65,6 @@ const debugStartListeners = new Set<() => void>();
 const debugEndListeners = new Set<() => void>();
 const activeEditorListeners = new Set<(editor: unknown) => void>();
 const selectionListeners = new Set<(event: { kind: unknown }) => void>();
-const visibleRangesListeners = new Set<() => void>();
 const activeTerminalListeners = new Set<(terminal: unknown) => void>();
 const tabListeners = new Set<() => void>();
 const workspaceFoldersListeners = new Set<() => void>();
@@ -79,10 +78,6 @@ export function __setActiveEditor(editor: { document: { languageId: string } } |
 
 export function __fireSelectionChange(kind: number | undefined = TextEditorSelectionChangeKind.Keyboard): void {
   for (const listener of selectionListeners) listener({ kind });
-}
-
-export function __fireVisibleRanges(): void {
-  for (const listener of visibleRangesListeners) listener();
 }
 
 export function __setActiveTerminal(terminal: unknown): void {
@@ -132,10 +127,6 @@ export const window = {
     selectionListeners.add(listener);
     return { dispose: () => selectionListeners.delete(listener) };
   },
-  onDidChangeTextEditorVisibleRanges(listener: () => void) {
-    visibleRangesListeners.add(listener);
-    return { dispose: () => visibleRangesListeners.delete(listener) };
-  },
   onDidChangeActiveTerminal(listener: (terminal: unknown) => void) {
     activeTerminalListeners.add(listener);
     return { dispose: () => activeTerminalListeners.delete(listener) };
@@ -164,7 +155,6 @@ export function __resetEvents(): void {
   debugEndListeners.clear();
   activeEditorListeners.clear();
   selectionListeners.clear();
-  visibleRangesListeners.clear();
   activeTerminalListeners.clear();
   tabListeners.clear();
   workspaceFoldersListeners.clear();

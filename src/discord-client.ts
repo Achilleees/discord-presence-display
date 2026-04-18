@@ -19,7 +19,7 @@ export async function connect(clientId: string, callbacks: ClientCallbacks = {})
   // was never closed.
   if (inFlightConnect) await inFlightConnect.catch(() => {});
 
-  inFlightConnect = (async () => {
+  const run = (async () => {
     if (client) {
       const previous = client;
       client = null;
@@ -35,16 +35,23 @@ export async function connect(clientId: string, callbacks: ClientCallbacks = {})
     try {
       await next.login();
     } catch (err) {
-      if (client === next) client = null;
-      await next.destroy().catch(() => {});
+      // Only destroy if this instance is still "current" — a concurrent
+      // disconnect() may have already destroyed it.
+      if (client === next) {
+        client = null;
+        await next.destroy().catch(() => {});
+      }
       throw err;
     }
   })();
+  inFlightConnect = run;
 
   try {
-    await inFlightConnect;
+    await run;
   } finally {
-    inFlightConnect = null;
+    // Only null if we're still the active in-flight. A subsequent connect()
+    // may have already replaced us.
+    if (inFlightConnect === run) inFlightConnect = null;
   }
 }
 
@@ -55,10 +62,15 @@ export async function disconnect(): Promise<void> {
   await c.destroy().catch(() => {});
 }
 
-export async function pushPresence(activity: SetActivity): Promise<void> {
+export async function pushPresence(activity: SetActivity): Promise<boolean> {
   const c = client;
-  if (!c?.isConnected) return;
-  await c.user?.setActivity(activity).catch(() => {});
+  if (!c?.isConnected) return false;
+  try {
+    await c.user?.setActivity(activity);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export async function clearPresence(): Promise<void> {

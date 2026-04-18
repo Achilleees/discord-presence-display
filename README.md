@@ -75,7 +75,7 @@ When `smartState` is on, the status line follows this priority:
 3. Terminal is the active panel → `In the terminal`
 4. Otherwise → `Working in {language}`
 
-Toggle `showWorkspace` to append ` — {workspace}` to any of the above.
+Toggle `showWorkspace` to append ` — {workspace}` to rules 1–4 above. When no language is detected and no smart trigger is active, the entire state line is omitted — there is no standalone workspace-only line.
 
 ### Idle behaviors
 

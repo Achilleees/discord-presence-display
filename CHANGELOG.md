@@ -23,7 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Renamed package to `coding-status-for-discord` (display: "Coding Status for Discord")
-- Split `src/extension.ts` into 7 modules: `extension`, `discord-client`, `presence`, `config`, `commands`, `state`, `words`
+- Split `src/extension.ts` into 8 modules: `extension`, `discord-client`, `presence`, `transitions`, `config`, `commands`, `state`, `words`
 - Rebranded Discord activity with `vscode-spinner` as the large image and `Visual Studio Code` as its tooltip
 - Small image now uses a per-language icon when available; falls back to the Claude logo with `Powered by Claude Code`
 

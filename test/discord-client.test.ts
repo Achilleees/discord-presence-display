@@ -98,18 +98,27 @@ describe('connect', () => {
 });
 
 describe('pushPresence / clearPresence', () => {
-  it('no-ops when not connected', async () => {
+  it('no-ops when not connected (returns false from pushPresence)', async () => {
     expect(discord.isReady()).toBe(false);
-    await expect(discord.pushPresence({ details: 'test' })).resolves.toBeUndefined();
+    await expect(discord.pushPresence({ details: 'test' })).resolves.toBe(false);
     await expect(discord.clearPresence()).resolves.toBeUndefined();
     expect(discord.isReady()).toBe(false);
   });
 
-  it('calls setActivity when connected', async () => {
+  it('calls setActivity when connected and returns true', async () => {
     await discord.connect('id');
     instances[0].isConnected = true;
-    await discord.pushPresence({ details: 'Thinking...' });
+    const ok = await discord.pushPresence({ details: 'Thinking...' });
+    expect(ok).toBe(true);
     expect(instances[0].user?.setActivity).toHaveBeenCalledWith({ details: 'Thinking...' });
+  });
+
+  it('returns false when setActivity rejects', async () => {
+    await discord.connect('id');
+    instances[0].isConnected = true;
+    instances[0].user!.setActivity.mockRejectedValueOnce(new Error('boom'));
+    const ok = await discord.pushPresence({ details: 'x' });
+    expect(ok).toBe(false);
   });
 
   it('calls clearActivity when connected', async () => {

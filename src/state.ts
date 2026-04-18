@@ -13,6 +13,9 @@ export class RingBuffer<T> {
   }
 }
 
+// 'terminal' and 'diff' drive smart-state rules 3 and 4 in presence.ts.
+// 'editor' and 'none' are informational (reserved for diagnostics); the
+// presence renderer treats them identically to "use rule 6 fallthrough".
 export type FocusContext = 'editor' | 'terminal' | 'diff' | 'none';
 
 export interface State {
