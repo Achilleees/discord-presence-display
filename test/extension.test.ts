@@ -37,7 +37,16 @@ vi.mock('@xhayper/discord-rpc', () => {
 
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-expect-error mock module resolved via vitest alias
-import { __setConfig, __resetConfig, __resetCommands, __getRegisteredCommand } from 'vscode';
+import {
+  __setConfig,
+  __resetConfig,
+  __resetCommands,
+  __getRegisteredCommand,
+  __setFocused,
+  __resetEvents,
+  __startDebugSession,
+  __endDebugSession,
+} from 'vscode';
 import * as extension from '../src/extension';
 
 function mkContext(): { subscriptions: { dispose: () => void }[] } {
@@ -47,11 +56,13 @@ function mkContext(): { subscriptions: { dispose: () => void }[] } {
 beforeEach(() => {
   __resetConfig();
   __resetCommands();
+  __resetEvents();
   instances.length = 0;
 });
 
 afterEach(() => {
   extension.deactivate();
+  vi.useRealTimers();
 });
 
 describe('activate', () => {
@@ -94,6 +105,103 @@ describe('deactivate', () => {
     // give destroy a tick
     await Promise.resolve();
     expect(instances[0].destroy).toHaveBeenCalled();
+  });
+});
+
+describe('idle engagement', () => {
+  async function bootAndReady(idleBehavior = 'slow'): Promise<void> {
+    __setConfig({
+      'claudeSpinner.idleThresholdMinutes': 1,
+      'claudeSpinner.idleBehavior': idleBehavior,
+    });
+    extension.activate(mkContext() as never);
+    await Promise.resolve();
+    if (instances[0]) instances[0].isConnected = true;
+  }
+
+  it('engages idle "clear" behavior after threshold', async () => {
+    vi.useFakeTimers();
+    await bootAndReady('clear');
+    __setFocused(false);
+    vi.advanceTimersByTime(60_000 + 1);
+    await Promise.resolve();
+    expect(instances[0].user?.clearActivity).toHaveBeenCalled();
+  });
+
+  it('engages idle "pause" behavior — stops cycling but does not clear', async () => {
+    vi.useFakeTimers();
+    await bootAndReady('pause');
+    const initialClearCalls = instances[0].user!.clearActivity.mock.calls.length;
+    __setFocused(false);
+    vi.advanceTimersByTime(60_000 + 1);
+    await Promise.resolve();
+    expect(instances[0].user!.clearActivity.mock.calls.length).toBe(initialClearCalls);
+  });
+
+  it('pushes again on re-focus after idle', async () => {
+    vi.useFakeTimers();
+    await bootAndReady('clear');
+    __setFocused(false);
+    vi.advanceTimersByTime(60_000 + 1);
+    await Promise.resolve();
+    instances[0].user!.setActivity.mockClear();
+    __setFocused(true);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(instances[0].user?.setActivity).toHaveBeenCalled();
+  });
+
+  it('reconnect during idle "clear" does NOT resurrect presence (audit r3 3.1)', async () => {
+    vi.useFakeTimers();
+    await bootAndReady('clear');
+    __setFocused(false);
+    vi.advanceTimersByTime(60_000 + 1);
+    await Promise.resolve();
+    // Now idle+clear. Simulate Discord reconnect by firing the captured
+    // onReady callback with the client still appearing connected.
+    const readyCall = instances[0].on.mock.calls.find((c: unknown[]) => c[0] === 'ready');
+    expect(readyCall).toBeDefined();
+    const onReady = readyCall![1] as () => void;
+    instances[0].user!.setActivity.mockClear();
+    instances[0].user!.clearActivity.mockClear();
+    onReady();
+    await Promise.resolve();
+    expect(instances[0].user?.setActivity).not.toHaveBeenCalled();
+    expect(instances[0].user?.clearActivity).toHaveBeenCalled();
+  });
+
+  it('reconnect during idle "pause" pushes once but does not start cycling', async () => {
+    vi.useFakeTimers();
+    await bootAndReady('pause');
+    __setFocused(false);
+    vi.advanceTimersByTime(60_000 + 1);
+    await Promise.resolve();
+    const readyCall = instances[0].on.mock.calls.find((c: unknown[]) => c[0] === 'ready');
+    const onReady = readyCall![1] as () => void;
+    instances[0].user!.setActivity.mockClear();
+    onReady();
+    await Promise.resolve();
+    // Exactly one restore push, no further pushes from a cycle tick.
+    expect(instances[0].user!.setActivity.mock.calls.length).toBe(1);
+    vi.advanceTimersByTime(60_000);
+    await Promise.resolve();
+    expect(instances[0].user!.setActivity.mock.calls.length).toBe(1);
+  });
+});
+
+describe('debug session', () => {
+  it('pushes a new payload after debug session starts', async () => {
+    vi.useFakeTimers();
+    extension.activate(mkContext() as never);
+    await Promise.resolve();
+    if (instances[0]) instances[0].isConnected = true;
+    instances[0].user!.setActivity.mockClear();
+    __startDebugSession();
+    vi.advanceTimersByTime(1_000);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(instances[0].user?.setActivity).toHaveBeenCalled();
+    __endDebugSession();
   });
 });
 

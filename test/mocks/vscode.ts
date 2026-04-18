@@ -1,3 +1,5 @@
+import { CONFIG_SECTION } from '../../src/config';
+
 type ConfigStore = Record<string, unknown>;
 
 let store: ConfigStore = {};
@@ -12,7 +14,7 @@ export function __resetConfig(): void {
   store = {};
 }
 
-export function __emitConfigChange(affectedSections: readonly string[] = ['claudeSpinner']): void {
+export function __emitConfigChange(affectedSections: readonly string[] = [CONFIG_SECTION]): void {
   const event = {
     affectsConfiguration: (section: string) =>
       affectedSections.some((s) => section === s || section.startsWith(`${s}.`)),
@@ -55,6 +57,25 @@ export const commands = {
   },
 };
 
+const windowStateListeners = new Set<(e: { focused: boolean }) => void>();
+const debugStartListeners = new Set<() => void>();
+const debugEndListeners = new Set<() => void>();
+
+export function __setFocused(focused: boolean): void {
+  window.state.focused = focused;
+  for (const listener of windowStateListeners) listener({ focused });
+}
+
+export function __startDebugSession(): void {
+  (debug as unknown as { activeDebugSession: unknown }).activeDebugSession = { id: 'test' };
+  for (const listener of debugStartListeners) listener();
+}
+
+export function __endDebugSession(): void {
+  (debug as unknown as { activeDebugSession: unknown }).activeDebugSession = undefined;
+  for (const listener of debugEndListeners) listener();
+}
+
 export const window = {
   activeTextEditor: undefined as { document: { languageId: string } } | undefined,
   activeTerminal: undefined,
@@ -66,14 +87,31 @@ export const window = {
   onDidChangeActiveTextEditor: () => ({ dispose: () => {} }),
   onDidChangeTextEditorSelection: () => ({ dispose: () => {} }),
   onDidChangeActiveTerminal: () => ({ dispose: () => {} }),
-  onDidChangeWindowState: () => ({ dispose: () => {} }),
+  onDidChangeWindowState(listener: (e: { focused: boolean }) => void) {
+    windowStateListeners.add(listener);
+    return { dispose: () => windowStateListeners.delete(listener) };
+  },
 };
 
 export const debug = {
   activeDebugSession: undefined,
-  onDidStartDebugSession: () => ({ dispose: () => {} }),
-  onDidTerminateDebugSession: () => ({ dispose: () => {} }),
+  onDidStartDebugSession(listener: () => void) {
+    debugStartListeners.add(listener);
+    return { dispose: () => debugStartListeners.delete(listener) };
+  },
+  onDidTerminateDebugSession(listener: () => void) {
+    debugEndListeners.add(listener);
+    return { dispose: () => debugEndListeners.delete(listener) };
+  },
 };
+
+export function __resetEvents(): void {
+  windowStateListeners.clear();
+  debugStartListeners.clear();
+  debugEndListeners.clear();
+  window.state.focused = true;
+  (debug as unknown as { activeDebugSession: unknown }).activeDebugSession = undefined;
+}
 
 export class TabInputTextDiff {}
 export class TabInputTextMultiDiff {}

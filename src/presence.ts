@@ -3,7 +3,7 @@ import type { Config } from './config';
 import type { State } from './state';
 import { buildPool, getNextWord } from './words';
 
-export function pickCandidateWord(state: State, config: Config, nowMs: number): string | undefined {
+export function pickCandidateWord(state: State, config: Config, nowMs: number): string {
   if (!config.cycleWords && state.pinnedWord) return state.pinnedWord;
 
   const pool = buildPool({

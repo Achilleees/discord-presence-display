@@ -25,6 +25,13 @@ const NO_OP: ConfigTransition = {
   schedulePush: false,
 };
 
+function sameStringList(a: readonly string[], b: readonly string[]): boolean {
+  if (a === b) return true;
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+  return true;
+}
+
 export function computeConfigTransition(
   prev: Config | undefined,
   next: Config,
@@ -34,9 +41,24 @@ export function computeConfigTransition(
   if (prev && !prev.enabled && next.enabled) return { ...NO_OP, reconnect: true };
   if (!prev) return { ...NO_OP, schedulePush: true };
 
+  const poolAffectingChanged =
+    !sameStringList(prev.customWords, next.customWords) ||
+    prev.wordRarity !== next.wordRarity ||
+    prev.timeBasedPools !== next.timeBasedPools;
+
+  // Clear the pinned word so pickCandidateWord will re-roll on next push.
+  // Two triggers:
+  //   1. Entering pinned mode (cycleWords true→false): drop any stale pin.
+  //   2. Already in pinned mode and the word pool changed (customWords,
+  //      wordRarity, or timeBasedPools): otherwise the pinned word would
+  //      silently ignore the new pool until cycleWords is toggled.
+  const clearPinnedWord =
+    (prev.cycleWords && !next.cycleWords) ||
+    (!next.cycleWords && poolAffectingChanged);
+
   return {
     ...NO_OP,
-    clearPinnedWord: prev.cycleWords && !next.cycleWords,
+    clearPinnedWord,
     restartCycle: prev.cycleSpeed !== next.cycleSpeed || prev.cycleWords !== next.cycleWords,
     restartIdleTimer: prev.idleThresholdMinutes !== next.idleThresholdMinutes && ctx.idleTimerArmed,
     applyIdleBehavior: prev.idleBehavior !== next.idleBehavior && ctx.isIdle,

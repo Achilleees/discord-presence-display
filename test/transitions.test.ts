@@ -68,6 +68,34 @@ describe('computeConfigTransition', () => {
       const t = computeConfigTransition(cfg({ cycleWords: true }), cfg({ cycleWords: true }), ACTIVE_CTX);
       expect(t.clearPinnedWord).toBe(false);
     });
+
+    it('clears pinnedWord when customWords changes in pinned mode', () => {
+      const prev = cfg({ cycleWords: false, customWords: ['A'] });
+      const next = cfg({ cycleWords: false, customWords: ['A', 'B'] });
+      const t = computeConfigTransition(prev, next, ACTIVE_CTX);
+      expect(t.clearPinnedWord).toBe(true);
+    });
+
+    it('clears pinnedWord when wordRarity flips in pinned mode', () => {
+      const prev = cfg({ cycleWords: false, wordRarity: false });
+      const next = cfg({ cycleWords: false, wordRarity: true });
+      const t = computeConfigTransition(prev, next, ACTIVE_CTX);
+      expect(t.clearPinnedWord).toBe(true);
+    });
+
+    it('clears pinnedWord when timeBasedPools flips in pinned mode', () => {
+      const prev = cfg({ cycleWords: false, timeBasedPools: false });
+      const next = cfg({ cycleWords: false, timeBasedPools: true });
+      const t = computeConfigTransition(prev, next, ACTIVE_CTX);
+      expect(t.clearPinnedWord).toBe(true);
+    });
+
+    it('does NOT clear pinnedWord when pool-affecting change happens in cycling mode', () => {
+      const prev = cfg({ cycleWords: true, wordRarity: false });
+      const next = cfg({ cycleWords: true, wordRarity: true });
+      const t = computeConfigTransition(prev, next, ACTIVE_CTX);
+      expect(t.clearPinnedWord).toBe(false);
+    });
   });
 
   describe('cycle restart', () => {

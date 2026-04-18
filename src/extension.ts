@@ -53,16 +53,16 @@ async function pushImmediate(): Promise<void> {
   state.currentLanguage = vscode.window.activeTextEditor?.document.languageId ?? state.currentLanguage;
 
   const word = pickCandidateWord(state, config, Date.now());
-  if (!word) return;
-
   const payload = buildPresencePayload(state, config, word);
   if (payload === null) {
     await discord.clearPresence();
     return;
   }
 
-  state.recentWords.add(word);
-  if (!config.cycleWords) state.pinnedWord = word;
+  // Only track rotation history when actually cycling; in pinned mode the
+  // ring would fill with repeats of the same word.
+  if (config.cycleWords) state.recentWords.add(word);
+  else state.pinnedWord = word;
 
   await discord.pushPresence(payload);
 }
@@ -145,8 +145,7 @@ async function connectFlow(): Promise<void> {
         if (!config?.enabled || !state) return;
         clearReconnect();
         stopCycle();
-        void pushImmediate();
-        startCycle();
+        resumeAfterReady();
       },
       onDisconnected: () => {
         if (!isCurrent()) return;
@@ -157,6 +156,24 @@ async function connectFlow(): Promise<void> {
   } catch {
     if (isCurrent()) scheduleReconnect();
   }
+}
+
+// Called on every successful (re)connect. Respects the user's idleBehavior
+// contract when the user is currently idle — otherwise a Discord restart
+// during an AFK session would resurrect cycling that was meant to be
+// paused or cleared.
+function resumeAfterReady(): void {
+  if (!state || !config) return;
+
+  if (state.isIdle && config.idleBehavior === 'clear') {
+    void discord.clearPresence();
+    return;
+  }
+
+  void pushImmediate();
+
+  if (state.isIdle && config.idleBehavior === 'pause') return;
+  startCycle();
 }
 
 function togglePaused(): void {
@@ -176,7 +193,11 @@ function onWindowStateChange(): void {
   const focused = vscode.window.state.focused;
   if (!focused) {
     clearIdleTimer();
-    idleTimeout = setTimeout(engageIdle, config.idleThresholdMinutes * 60_000);
+    // Don't re-arm once we've already crossed the threshold — idle stays
+    // idle until focus returns.
+    if (!state.isIdle) {
+      idleTimeout = setTimeout(engageIdle, config.idleThresholdMinutes * 60_000);
+    }
   } else {
     clearIdleTimer();
     if (state.isIdle) {
@@ -254,6 +275,10 @@ export function activate(context: vscode.ExtensionContext): void {
   lastInteractedSource = 'editor';
   state.focusContext = computeFocusContext();
   state.debugActive = vscode.debug.activeDebugSession !== undefined;
+  // Treat boot-time unfocused as already-idle so the first connect respects
+  // the user's idleBehavior contract instead of cycling for a full threshold
+  // window before engaging.
+  state.isIdle = !vscode.window.state.focused;
 
   const disposables: vscode.Disposable[] = [
     vscode.window.onDidChangeActiveTextEditor((editor) => {
