@@ -61,8 +61,9 @@ export const commands = {
 };
 
 const windowStateListeners = new Set<(e: { focused: boolean }) => void>();
-const debugStartListeners = new Set<() => void>();
-const debugEndListeners = new Set<() => void>();
+const debugStartListeners = new Set<(session: { id: string }) => void>();
+const debugEndListeners = new Set<(session: { id: string }) => void>();
+let mockDebugSessionCounter = 0;
 const activeEditorListeners = new Set<(editor: unknown) => void>();
 const selectionListeners = new Set<(event: { kind: unknown }) => void>();
 const activeTerminalListeners = new Set<(terminal: unknown) => void>();
@@ -98,14 +99,18 @@ export function __setFocused(focused: boolean): void {
   for (const listener of windowStateListeners) listener({ focused });
 }
 
-export function __startDebugSession(): void {
-  (debug as unknown as { activeDebugSession: unknown }).activeDebugSession = { id: 'test' };
-  for (const listener of debugStartListeners) listener();
+export function __startDebugSession(id = `test-${++mockDebugSessionCounter}`): string {
+  const session = { id };
+  (debug as unknown as { activeDebugSession: unknown }).activeDebugSession = session;
+  for (const listener of debugStartListeners) listener(session);
+  return id;
 }
 
-export function __endDebugSession(): void {
+export function __endDebugSession(id?: string): void {
+  const current = (debug as unknown as { activeDebugSession: { id: string } | undefined }).activeDebugSession;
+  const session = { id: id ?? current?.id ?? 'test-0' };
   (debug as unknown as { activeDebugSession: unknown }).activeDebugSession = undefined;
-  for (const listener of debugEndListeners) listener();
+  for (const listener of debugEndListeners) listener(session);
 }
 
 export const window = {
@@ -139,11 +144,11 @@ export const window = {
 
 export const debug = {
   activeDebugSession: undefined,
-  onDidStartDebugSession(listener: () => void) {
+  onDidStartDebugSession(listener: (session: { id: string }) => void) {
     debugStartListeners.add(listener);
     return { dispose: () => debugStartListeners.delete(listener) };
   },
-  onDidTerminateDebugSession(listener: () => void) {
+  onDidTerminateDebugSession(listener: (session: { id: string }) => void) {
     debugEndListeners.add(listener);
     return { dispose: () => debugEndListeners.delete(listener) };
   },

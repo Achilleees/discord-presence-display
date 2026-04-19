@@ -338,17 +338,17 @@ describe('idle engagement', () => {
     vi.useFakeTimers();
     await bootAndReady('pause');
     __setFocused(false);
-    vi.advanceTimersByTime(60_000 + 1);
-    await Promise.resolve();
+    // Use async so the push from applyIdleBehavior('pause') drains fully
+    // before we mockClear; otherwise the mutex is still held.
+    await vi.advanceTimersByTimeAsync(60_001);
     const readyCall = instances[0].on.mock.calls.find((c: unknown[]) => c[0] === 'ready');
     const onReady = readyCall![1] as () => void;
     instances[0].user!.setActivity.mockClear();
     onReady();
-    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(100);
     // Exactly one restore push, no further pushes from a cycle tick.
     expect(instances[0].user!.setActivity.mock.calls.length).toBe(1);
-    vi.advanceTimersByTime(60_000);
-    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(60_000);
     expect(instances[0].user!.setActivity.mock.calls.length).toBe(1);
   });
 });
@@ -710,16 +710,18 @@ describe('toggle resume while idle', () => {
     const onReady = instances[0].on.mock.calls.find((c: unknown[]) => c[0] === 'ready')![1] as () => void;
     onReady();
     await vi.advanceTimersByTimeAsync(100);
-    // Pause (clears presence).
+    // Engage idle FIRST by unfocusing and advancing past the threshold —
+    // otherwise a subsequent pause short-circuits the idle timer and the
+    // "resume while idle" path is never actually exercised.
+    __setFocused(false);
+    await vi.advanceTimersByTimeAsync(60_001);
+    // Now idle-clear. Pause → still cleared, paused=true, isIdle=true.
     const toggle = __getRegisteredCommand('claudeSpinner.toggle')!;
     toggle();
     await Promise.resolve();
-    // Unfocus to become idle while paused.
-    __setFocused(false);
-    await vi.advanceTimersByTimeAsync(60_001);
     instances[0].user!.setActivity.mockClear();
-    // Resume via toggle — even though still idle and unfocused, plan says
-    // explicit resume should push fresh.
+    // Resume via toggle — plan says explicit resume must push fresh even
+    // though we're still idle and unfocused.
     toggle();
     await vi.advanceTimersByTimeAsync(100);
     expect(instances[0].user?.setActivity).toHaveBeenCalled();

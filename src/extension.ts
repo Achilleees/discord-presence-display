@@ -102,6 +102,12 @@ async function pushImmediate(opts: { bypassIdleSilence?: boolean } = {}): Promis
     // Guard against deactivate racing with an in-flight push.
     if (!state || !config) return;
 
+    // If idle-clear engaged between our pick and the push (another handler
+    // fired clearPresence), don't commit — Discord is now in the cleared
+    // state and recording the word would desynchronize our picker from
+    // what the user actually saw.
+    if (state.isIdle && config.idleBehavior === 'clear') return;
+
     // For cycling: commit to the ring regardless of push success so the
     // anti-duplicate picker advances. For pinned mode: only commit if
     // pushPresence reported success — a transient IPC write failure
@@ -242,6 +248,8 @@ function togglePaused(): void {
   state.paused = !state.paused;
   if (state.paused) {
     stopCycle();
+    // Also stop any pending idle work — pause supersedes idle transitions.
+    clearIdleTimer();
     void discord.clearPresence();
   } else {
     // Explicit resume overrides any lingering idle state so presence
@@ -251,6 +259,9 @@ function togglePaused(): void {
     clearIdleTimer();
     void pushImmediate();
     startCycle();
+    // If the window is currently unfocused, re-arm the idle timer so the
+    // user's idleBehavior applies again without needing a focus toggle.
+    onWindowStateChange();
   }
 }
 
@@ -299,6 +310,11 @@ function applyIdleBehavior(): void {
       break;
     case 'pause':
       stopCycle();
+      // Push once so something is visible for the "keep last presence
+      // visible" contract. When transitioning from 'clear' to 'pause'
+      // mid-idle this restores presence; in other transitions it's
+      // idempotent.
+      void pushImmediate({ bypassIdleSilence: true });
       break;
     case 'clear':
       stopCycle();
@@ -329,6 +345,10 @@ function handleConfigChange(next: Config): void {
     // clean slate; otherwise a stale isIdle=true leaks into the next
     // computeConfigTransition's applyIdleBehavior trigger.
     state.isIdle = false;
+    // Disable via config is effectively an extension restart — match the
+    // "paused state does not persist across VS Code restarts" contract
+    // from the plan so a re-enable starts fresh rather than silent.
+    state.paused = false;
     // Also clear pushDirty so a mid-flight push completing after shutdown
     // doesn't arm a stray post-shutdown debounce via its finally block.
     pushDirty = false;
