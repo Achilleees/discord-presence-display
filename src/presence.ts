@@ -60,6 +60,10 @@ const LANG_ID_OVERRIDES: Readonly<Record<string, string>> = {
   less: 'css',
 };
 
+// Superset of LANG_SUPPORTED: includes display names for languages that
+// don't have dedicated icons (PowerShell, Objective-C/++, HLSL, shell
+// dialects). Those render with the claude-logo fallback but a correct
+// language name in the tooltip and state line.
 const LANG_DISPLAY: Readonly<Record<string, string>> = {
   typescript: 'TypeScript',
   typescriptreact: 'TypeScript',

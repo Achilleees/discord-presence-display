@@ -106,10 +106,12 @@ export function __startDebugSession(id = `test-${++mockDebugSessionCounter}`): s
   return id;
 }
 
-export function __endDebugSession(id?: string): void {
+export function __endDebugSession(id?: string, opts: { keepActiveStale?: boolean } = {}): void {
   const current = (debug as unknown as { activeDebugSession: { id: string } | undefined }).activeDebugSession;
   const session = { id: id ?? current?.id ?? 'test-0' };
-  (debug as unknown as { activeDebugSession: unknown }).activeDebugSession = undefined;
+  if (!opts.keepActiveStale) {
+    (debug as unknown as { activeDebugSession: unknown }).activeDebugSession = undefined;
+  }
   for (const listener of debugEndListeners) listener(session);
 }
 

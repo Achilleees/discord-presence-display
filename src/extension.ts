@@ -22,6 +22,7 @@ let lastInteractedSource: 'editor' | 'terminal' = 'editor';
 let currentClientId: symbol | undefined;
 let pushing = false;
 let pushDirty = false;
+let pushDirtyBypass = false;
 // Track active debug session ids so we don't depend on VS Code's undocumented
 // event ordering around vscode.debug.activeDebugSession updates.
 const activeDebugSessions = new Set<string>();
@@ -63,6 +64,7 @@ async function pushImmediate(opts: { bypassIdleSilence?: boolean } = {}): Promis
   // slow IPC round-trip aren't silently dropped.
   if (pushing) {
     pushDirty = true;
+    if (opts.bypassIdleSilence) pushDirtyBypass = true;
     return;
   }
   pushing = true;
@@ -118,7 +120,15 @@ async function pushImmediate(opts: { bypassIdleSilence?: boolean } = {}): Promis
     pushing = false;
     if (pushDirty) {
       pushDirty = false;
-      schedulePush();
+      if (pushDirtyBypass) {
+        pushDirtyBypass = false;
+        // Retry the bypass push immediately (not debounced) — schedulePush
+        // would drop the bypass bit and silently swallow the push against
+        // the idle-pause silence guard.
+        void pushImmediate({ bypassIdleSilence: true });
+      } else {
+        schedulePush();
+      }
     }
   }
 }
@@ -250,6 +260,9 @@ function togglePaused(): void {
     stopCycle();
     // Also stop any pending idle work — pause supersedes idle transitions.
     clearIdleTimer();
+    // Drop any queued event-debounce so a stale push doesn't fire a
+    // redundant clearActivity just after the explicit pause.
+    clearPushDebounce();
     void discord.clearPresence();
   } else {
     // Explicit resume overrides any lingering idle state so presence
@@ -352,6 +365,7 @@ function handleConfigChange(next: Config): void {
     // Also clear pushDirty so a mid-flight push completing after shutdown
     // doesn't arm a stray post-shutdown debounce via its finally block.
     pushDirty = false;
+    pushDirtyBypass = false;
     void discord.disconnect();
     return;
   }
@@ -489,6 +503,7 @@ export function deactivate(): void {
   clearPushDebounce();
   pushing = false;
   pushDirty = false;
+  pushDirtyBypass = false;
   activeDebugSessions.clear();
   void discord.disconnect();
   state = undefined;

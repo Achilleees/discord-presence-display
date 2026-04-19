@@ -283,6 +283,25 @@ describe('idle engagement', () => {
     expect(instances[0].user!.setActivity.mock.calls.length).toBeGreaterThan(afterChange);
   });
 
+  it('idleBehavior clear→pause while idle restores presence (audit r13 3.1)', async () => {
+    vi.useFakeTimers();
+    await bootAndReady('clear');
+    __setFocused(false);
+    await vi.advanceTimersByTimeAsync(60_001);
+    // Idle+clear engaged; presence is cleared. Now flip to 'pause'.
+    instances[0].user!.setActivity.mockClear();
+    __setConfig({
+      'claudeSpinner.idleThresholdMinutes': 1,
+      'claudeSpinner.idleBehavior': 'pause',
+    });
+    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+    // @ts-expect-error mock module
+    (await import('vscode')).__emitConfigChange(['claudeSpinner']);
+    // Flush applyIdleBehavior's bypass push and any dirty-retry chain.
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(instances[0].user?.setActivity).toHaveBeenCalled();
+  });
+
   it('idleBehavior clear→none while idle restores presence', async () => {
     vi.useFakeTimers();
     await bootAndReady('clear');
@@ -487,17 +506,17 @@ describe('debug session', () => {
     __endDebugSession();
   });
 
-  it('clears debugActive on terminate regardless of activeDebugSession ordering', async () => {
+  it('clears debugActive on terminate even when activeDebugSession is stale', async () => {
     vi.useFakeTimers();
     extension.activate(mkContext() as never);
     await Promise.resolve();
     if (instances[0]) instances[0].isConnected = true;
-    __startDebugSession();
+    const sessionId = __startDebugSession();
     await vi.advanceTimersByTimeAsync(1_000);
-    // Simulate a terminate event where activeDebugSession is still set
-    // (stale, per VS Code undocumented ordering). The tracked set should
-    // still drop the session and clear debugActive.
-    __endDebugSession();
+    // Fire terminate with activeDebugSession still set (simulating VS
+    // Code firing the event before nulling activeDebugSession). The
+    // tracked Set must drop the id regardless.
+    __endDebugSession(sessionId, { keepActiveStale: true });
     await vi.advanceTimersByTimeAsync(1_000);
     instances[0].user!.setActivity.mockClear();
     // Any subsequent push should no longer emit "Debugging in".
