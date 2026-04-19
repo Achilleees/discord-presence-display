@@ -179,10 +179,12 @@ export function buildPresencePayload(
   if (config.showLanguageIcon) {
     const iconKey = getLanguageIconKey(state.currentLanguage);
     activity.smallImageKey = iconKey;
-    activity.smallImageText =
-      iconKey !== FALLBACK_SMALL_IMAGE && state.currentLanguage
-        ? getLanguageDisplayName(state.currentLanguage)
-        : FALLBACK_SMALL_TEXT;
+    // Tooltip names the language whenever we know its display name, even
+    // when the icon falls back to the Claude logo — otherwise the state
+    // line ("Working in HLSL") would disagree with the tooltip.
+    activity.smallImageText = state.currentLanguage
+      ? getLanguageDisplayName(state.currentLanguage)
+      : FALLBACK_SMALL_TEXT;
   }
 
   return activity;

@@ -26,7 +26,7 @@ let pushDirty = false;
 function getWorkspaceName(): string | undefined {
   const folders = vscode.workspace.workspaceFolders;
   if (!folders || folders.length === 0) return undefined;
-  return folders[0]?.name;
+  return folders[0].name;
 }
 
 function instanceOfMaybe(input: unknown, name: 'TabInputTextDiff' | 'TabInputTextMultiDiff'): boolean {
@@ -50,7 +50,7 @@ function computeFocusContext(): FocusContext {
   return 'none';
 }
 
-async function pushImmediate(): Promise<void> {
+async function pushImmediate(opts: { bypassIdleSilence?: boolean } = {}): Promise<void> {
   if (!state || !config) return;
   if (!discord.isReady()) return;
   // Serialize pushes so a slow setActivity can't race with a subsequent
@@ -70,6 +70,13 @@ async function pushImmediate(): Promise<void> {
     // effect; ensure the presence stays cleared.
     if (state.isIdle && config.idleBehavior === 'clear') {
       await discord.clearPresence();
+      return;
+    }
+
+    // Idle-pause contract: stay silent. resumeAfterReady may opt out to
+    // push once on reconnect (Discord forgot our presence during the
+    // disconnect, so we restore visibility).
+    if (state.isIdle && config.idleBehavior === 'pause' && !opts.bypassIdleSilence) {
       return;
     }
 
@@ -218,7 +225,10 @@ function resumeAfterReady(): void {
     return;
   }
 
-  void pushImmediate();
+  // Push once to restore visibility post-reconnect. Bypass the idle-pause
+  // silence guard — this is the exception the plan carves out for pause
+  // on reconnect.
+  void pushImmediate({ bypassIdleSilence: true });
 
   if (state.isIdle && config.idleBehavior === 'pause') return;
   startCycle();
@@ -243,8 +253,10 @@ function onWindowStateChange(): void {
     // Don't re-arm once we've already crossed the threshold — idle stays
     // idle until focus returns. Also don't re-arm on spurious focus=false
     // events when a timer is already running; resetting the countdown on
-    // every such event could indefinitely postpone engageIdle.
-    if (!state.isIdle && !idleTimeout) {
+    // every such event could indefinitely postpone engageIdle. And don't
+    // arm when the user has paused presence entirely — idle behavior is
+    // moot while paused.
+    if (!state.isIdle && !idleTimeout && !state.paused) {
       idleTimeout = setTimeout(engageIdle, config.idleThresholdMinutes * 60_000);
     }
   } else {
@@ -298,6 +310,10 @@ function handleConfigChange(next: Config): void {
     clearReconnect();
     clearIdleTimer();
     clearPushDebounce();
+    // Reset isIdle so a later re-enable computes transitions against a
+    // clean slate; otherwise a stale isIdle=true leaks into the next
+    // computeConfigTransition's applyIdleBehavior trigger.
+    state.isIdle = false;
     void discord.disconnect();
     return;
   }
@@ -407,6 +423,9 @@ export function activate(context: vscode.ExtensionContext): void {
 }
 
 export function deactivate(): void {
+  // Listener disposal is delegated to context.subscriptions, which VS Code
+  // tears down around deactivation. We only need to unwind module-level
+  // state (timers, mutexes, connection) here.
   currentClientId = undefined;
   stopCycle();
   clearReconnect();

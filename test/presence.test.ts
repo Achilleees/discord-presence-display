@@ -208,8 +208,16 @@ describe('buildPresencePayload', () => {
     expect(p?.smallImageText).toBe('TypeScript');
   });
 
-  it('falls back small image to claude-logo with "Powered by Claude Code" for unknown language', () => {
+  it('falls back small image to claude-logo but still names the language in the tooltip', () => {
     const state = baseState({ currentLanguage: 'ocaml' });
+    const p = buildPresencePayload(state, baseConfig(), 'Working');
+    expect(p?.smallImageKey).toBe('claude-logo');
+    // Tooltip should match the state line — both say the language is OCaml-ish.
+    expect(p?.smallImageText).toBe('Ocaml');
+  });
+
+  it('uses "Powered by Claude Code" tooltip only when there is no language', () => {
+    const state = baseState({ currentLanguage: undefined });
     const p = buildPresencePayload(state, baseConfig(), 'Working');
     expect(p?.smallImageKey).toBe('claude-logo');
     expect(p?.smallImageText).toBe('Powered by Claude Code');

@@ -9,21 +9,36 @@ interface ClientCallbacks {
 let client: Client | null = null;
 let inFlightConnect: Promise<void> | null = null;
 
+function raceWithTimeout<T>(promise: Promise<T>, ms: number): Promise<T | undefined> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  return Promise.race<T | undefined>([
+    promise.finally(() => {
+      if (timer) clearTimeout(timer);
+    }),
+    new Promise<undefined>((resolve) => {
+      timer = setTimeout(() => resolve(undefined), ms);
+    }),
+  ]);
+}
+
 export function isReady(): boolean {
   return client?.isConnected === true;
 }
 
 export async function connect(clientId: string, callbacks: ClientCallbacks = {}): Promise<void> {
-  // Serialize concurrent callers. Without this, two connect() calls can
-  // interleave across the destroy() await and leak a client whose socket
-  // was never closed.
-  if (inFlightConnect) await inFlightConnect.catch(() => {});
+  // Serialize concurrent callers by chaining. Two-or-more callers awaiting
+  // the same prior promise would previously fork — each create their own
+  // Client — and leak sockets. Chaining off `inFlightConnect` at call time
+  // (rather than at "ready to run" time) ensures each caller's body starts
+  // only after all prior callers' bodies complete.
+  const prior = inFlightConnect;
+  const run: Promise<void> = (async () => {
+    if (prior) await prior.catch(() => {});
 
-  const run = (async () => {
     if (client) {
       const previous = client;
       client = null;
-      await previous.destroy().catch(() => {});
+      await raceWithTimeout(previous.destroy().catch(() => {}), 3_000);
     }
 
     const next = new Client({ clientId });

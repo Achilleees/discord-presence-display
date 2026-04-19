@@ -320,6 +320,20 @@ describe('idle engagement', () => {
     expect(instances[0].user!.setActivity).not.toHaveBeenCalled();
   });
 
+  it('idle "pause" suppresses non-reconnect pushes (audit r9 3.5)', async () => {
+    vi.useFakeTimers();
+    await bootAndReady('pause');
+    __setFocused(false);
+    await vi.advanceTimersByTimeAsync(60_001);
+    // Now idle+pause. A debug session start would normally trigger a push
+    // via schedulePush; under pause silence it should NOT.
+    const baseline = instances[0].user!.setActivity.mock.calls.length;
+    __startDebugSession();
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(instances[0].user!.setActivity.mock.calls.length).toBe(baseline);
+    __endDebugSession();
+  });
+
   it('reconnect during idle "pause" pushes once but does not start cycling', async () => {
     vi.useFakeTimers();
     await bootAndReady('pause');
