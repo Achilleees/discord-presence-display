@@ -76,6 +76,14 @@ describe('computeConfigTransition', () => {
       expect(t.clearPinnedWord).toBe(true);
     });
 
+    it('does not clear pinnedWord for a mere customWords reorder (same set)', () => {
+      const prev = cfg({ cycleWords: false, customWords: ['A', 'B'] });
+      const next = cfg({ cycleWords: false, customWords: ['B', 'A'] });
+      const t = computeConfigTransition(prev, next, ACTIVE_CTX);
+      expect(t.clearPinnedWord).toBe(false);
+      expect(t.flushRecentWords).toBe(false);
+    });
+
     it('clears pinnedWord when wordRarity flips in pinned mode', () => {
       const prev = cfg({ cycleWords: false, wordRarity: false });
       const next = cfg({ cycleWords: false, wordRarity: true });
@@ -151,6 +159,41 @@ describe('computeConfigTransition', () => {
     it('restartCycle does NOT fire for idleBehavior change when not idle', () => {
       const t = computeConfigTransition(cfg({ idleBehavior: 'slow' }), cfg({ idleBehavior: 'none' }), ACTIVE_CTX);
       expect(t.restartCycle).toBe(false);
+    });
+  });
+
+  describe('flushRecentWords', () => {
+    it('fires when customWords changes', () => {
+      const t = computeConfigTransition(
+        cfg({ customWords: [] }),
+        cfg({ customWords: ['X'] }),
+        ACTIVE_CTX,
+      );
+      expect(t.flushRecentWords).toBe(true);
+    });
+    it('fires when wordRarity flips', () => {
+      const t = computeConfigTransition(
+        cfg({ wordRarity: false }),
+        cfg({ wordRarity: true }),
+        ACTIVE_CTX,
+      );
+      expect(t.flushRecentWords).toBe(true);
+    });
+    it('fires when timeBasedPools flips', () => {
+      const t = computeConfigTransition(
+        cfg({ timeBasedPools: false }),
+        cfg({ timeBasedPools: true }),
+        ACTIVE_CTX,
+      );
+      expect(t.flushRecentWords).toBe(true);
+    });
+    it('does not fire for unrelated settings', () => {
+      const t = computeConfigTransition(
+        cfg({ showWorkspace: false }),
+        cfg({ showWorkspace: true }),
+        ACTIVE_CTX,
+      );
+      expect(t.flushRecentWords).toBe(false);
     });
   });
 

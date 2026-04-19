@@ -241,6 +241,11 @@ function togglePaused(): void {
     stopCycle();
     void discord.clearPresence();
   } else {
+    // Explicit resume overrides any lingering idle state so presence
+    // reappears immediately per plan §Commands "Resume: pushes fresh,
+    // restarts interval."
+    state.isIdle = false;
+    clearIdleTimer();
     void pushImmediate();
     startCycle();
   }
@@ -248,6 +253,13 @@ function togglePaused(): void {
 
 function onWindowStateChange(): void {
   if (!state || !config) return;
+  // While disabled, don't arm the idle timer — a timer armed during a
+  // disabled period would later fire against a re-enabled session with
+  // stale semantics (and a stale isIdle flag would be ignored anyway).
+  if (!config.enabled) {
+    clearIdleTimer();
+    return;
+  }
   const focused = vscode.window.state.focused;
   if (!focused) {
     // Don't re-arm once we've already crossed the threshold — idle stays
@@ -314,22 +326,28 @@ function handleConfigChange(next: Config): void {
     // clean slate; otherwise a stale isIdle=true leaks into the next
     // computeConfigTransition's applyIdleBehavior trigger.
     state.isIdle = false;
+    // Also clear pushDirty so a mid-flight push completing after shutdown
+    // doesn't arm a stray post-shutdown debounce via its finally block.
+    pushDirty = false;
     void discord.disconnect();
     return;
   }
 
   if (transition.reconnect) {
+    // Drop any stale idle timer armed during the disabled period.
+    clearIdleTimer();
     // Re-prime isIdle from the current focus state so the re-enable
     // respects the user's current context (AFK during disable → idle).
     state.isIdle = !vscode.window.state.focused;
     void connectFlow();
-    // Arm or exit the idle timer based on current focus.
+    // Arm the idle timer if appropriate given the re-enabled state.
     onWindowStateChange();
     // Fall through so any other changes that came in the same save
     // (cycleSpeed, customWords, idleBehavior, etc.) still apply.
   }
 
   if (transition.clearPinnedWord) state.pinnedWord = undefined;
+  if (transition.flushRecentWords) state.recentWords.clear();
   if (transition.restartCycle) startCycle();
   if (transition.restartIdleTimer) {
     clearIdleTimer();

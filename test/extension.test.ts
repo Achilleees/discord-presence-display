@@ -593,10 +593,10 @@ describe('config-change reconnect path', () => {
 });
 
 describe('boot-unfocused', () => {
-  it('with idleBehavior=clear, first connect keeps presence cleared', async () => {
+  async function bootUnfocused(idleBehavior: 'slow' | 'pause' | 'clear' | 'none'): Promise<() => void> {
     vi.useFakeTimers();
     __setConfig({
-      'claudeSpinner.idleBehavior': 'clear',
+      'claudeSpinner.idleBehavior': idleBehavior,
       'claudeSpinner.idleThresholdMinutes': 1,
     });
     mockWindow.state.focused = false;
@@ -604,13 +604,105 @@ describe('boot-unfocused', () => {
     await Promise.resolve();
     await Promise.resolve();
     if (instances[0]) instances[0].isConnected = true;
-    // Simulate ready
     const readyCall = instances[0].on.mock.calls.find((c: unknown[]) => c[0] === 'ready');
-    const onReady = readyCall![1] as () => void;
+    return readyCall![1] as () => void;
+  }
+
+  it('with idleBehavior=clear, first connect keeps presence cleared', async () => {
+    const onReady = await bootUnfocused('clear');
     onReady();
     await vi.advanceTimersByTimeAsync(100);
     expect(instances[0].user?.setActivity).not.toHaveBeenCalled();
     expect(instances[0].user?.clearActivity).toHaveBeenCalled();
+  });
+
+  it('with idleBehavior=pause, first connect pushes once (restore) and does not cycle', async () => {
+    const onReady = await bootUnfocused('pause');
+    onReady();
+    await vi.advanceTimersByTimeAsync(100);
+    expect(instances[0].user!.setActivity.mock.calls.length).toBe(1);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(instances[0].user!.setActivity.mock.calls.length).toBe(1);
+  });
+
+  it('with idleBehavior=slow, first connect pushes + cycles at quadrupled interval', async () => {
+    const onReady = await bootUnfocused('slow');
+    onReady();
+    await vi.advanceTimersByTimeAsync(100);
+    const initial = instances[0].user!.setActivity.mock.calls.length;
+    expect(initial).toBe(1);
+    // cycleSpeed defaults to 15 → slow interval = 60s. No tick at 15s.
+    await vi.advanceTimersByTimeAsync(15_500);
+    expect(instances[0].user!.setActivity.mock.calls.length).toBe(initial);
+    // Tick fires past 60s.
+    await vi.advanceTimersByTimeAsync(46_000);
+    expect(instances[0].user!.setActivity.mock.calls.length).toBeGreaterThan(initial);
+  });
+
+  it('with idleBehavior=none, first connect pushes + cycles at normal interval', async () => {
+    const onReady = await bootUnfocused('none');
+    onReady();
+    await vi.advanceTimersByTimeAsync(100);
+    const initial = instances[0].user!.setActivity.mock.calls.length;
+    expect(initial).toBe(1);
+    // 'none' keeps normal cycling — tick at the 15s default.
+    await vi.advanceTimersByTimeAsync(15_500);
+    expect(instances[0].user!.setActivity.mock.calls.length).toBeGreaterThan(initial);
+  });
+});
+
+describe('idle none engagement', () => {
+  it('engaging idle with idleBehavior=none is a no-op (cycle continues)', async () => {
+    vi.useFakeTimers();
+    __setConfig({
+      'claudeSpinner.cycleSpeed': 10,
+      'claudeSpinner.idleThresholdMinutes': 1,
+      'claudeSpinner.idleBehavior': 'none',
+    });
+    extension.activate(mkContext() as never);
+    await Promise.resolve();
+    await Promise.resolve();
+    if (instances[0]) instances[0].isConnected = true;
+    // Fire ready so the cycle starts.
+    const readyCall = instances[0].on.mock.calls.find((c: unknown[]) => c[0] === 'ready');
+    (readyCall![1] as () => void)();
+    await vi.advanceTimersByTimeAsync(100);
+    const initial = instances[0].user!.setActivity.mock.calls.length;
+    __setFocused(false);
+    await vi.advanceTimersByTimeAsync(60_001);
+    // Idle engaged (none) — cycle should still tick at cycleSpeed.
+    await vi.advanceTimersByTimeAsync(11_000);
+    expect(instances[0].user!.setActivity.mock.calls.length).toBeGreaterThan(initial);
+  });
+});
+
+describe('toggle resume while idle', () => {
+  it('overrides idle state so presence reappears immediately', async () => {
+    vi.useFakeTimers();
+    __setConfig({
+      'claudeSpinner.idleThresholdMinutes': 1,
+      'claudeSpinner.idleBehavior': 'clear',
+    });
+    extension.activate(mkContext() as never);
+    await Promise.resolve();
+    await Promise.resolve();
+    if (instances[0]) instances[0].isConnected = true;
+    const onReady = instances[0].on.mock.calls.find((c: unknown[]) => c[0] === 'ready')![1] as () => void;
+    onReady();
+    await vi.advanceTimersByTimeAsync(100);
+    // Pause (clears presence).
+    const toggle = __getRegisteredCommand('claudeSpinner.toggle')!;
+    toggle();
+    await Promise.resolve();
+    // Unfocus to become idle while paused.
+    __setFocused(false);
+    await vi.advanceTimersByTimeAsync(60_001);
+    instances[0].user!.setActivity.mockClear();
+    // Resume via toggle — even though still idle and unfocused, plan says
+    // explicit resume should push fresh.
+    toggle();
+    await vi.advanceTimersByTimeAsync(100);
+    expect(instances[0].user?.setActivity).toHaveBeenCalled();
   });
 });
 

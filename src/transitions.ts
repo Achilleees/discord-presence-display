@@ -4,6 +4,7 @@ export interface ConfigTransition {
   readonly shutdown: boolean;
   readonly reconnect: boolean;
   readonly clearPinnedWord: boolean;
+  readonly flushRecentWords: boolean;
   readonly restartCycle: boolean;
   readonly restartIdleTimer: boolean;
   readonly applyIdleBehavior: boolean;
@@ -19,6 +20,7 @@ const NO_OP: ConfigTransition = {
   shutdown: false,
   reconnect: false,
   clearPinnedWord: false,
+  flushRecentWords: false,
   restartCycle: false,
   restartIdleTimer: false,
   applyIdleBehavior: false,
@@ -74,6 +76,10 @@ export function computeConfigTransition(
   return {
     ...NO_OP,
     clearPinnedWord,
+    // Flush the recent-words ring when the pool changes so obsolete custom
+    // words left over from a prior pool don't shrink the effective
+    // anti-duplicate window on the next pick.
+    flushRecentWords: poolAffectingChanged,
     // Also restart the cycle when idleBehavior flips while idle so that a
     // transition from slow/pause/clear to 'none' actually resumes normal
     // cycling — applyIdleBehavior('none') is a no-op by design.

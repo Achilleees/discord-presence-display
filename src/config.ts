@@ -20,10 +20,10 @@ export interface Config {
   timeBasedPools: boolean;
 }
 
-function clamp(raw: unknown, min: number, max: number): number {
+function clamp(raw: unknown, min: number, max: number, def: number): number {
   const n = typeof raw === 'number' ? raw : typeof raw === 'string' ? Number(raw) : NaN;
-  if (!Number.isFinite(n)) return min;
-  return Math.min(max, Math.max(min, n));
+  const value = Number.isFinite(n) ? n : def;
+  return Math.min(max, Math.max(min, value));
 }
 
 function toBool(raw: unknown, def: boolean): boolean {
@@ -53,7 +53,7 @@ export function readConfig(): Config {
   const cfg = vscode.workspace.getConfiguration(CONFIG_SECTION);
   return {
     enabled: toBool(cfg.get<unknown>('enabled', true), true),
-    cycleSpeed: clamp(cfg.get<unknown>('cycleSpeed', 15), 5, 120),
+    cycleSpeed: clamp(cfg.get<unknown>('cycleSpeed', 15), 5, 120, 15),
     cycleWords: toBool(cfg.get<unknown>('cycleWords', true), true),
     customWords: sanitizeCustomWords(cfg.get<unknown>('customWords', [])),
     showLanguage: toBool(cfg.get<unknown>('showLanguage', true), true),
@@ -62,7 +62,7 @@ export function readConfig(): Config {
     showLanguageIcon: toBool(cfg.get<unknown>('showLanguageIcon', true), true),
     smartState: toBool(cfg.get<unknown>('smartState', true), true),
     idleBehavior: asIdleBehavior(cfg.get<unknown>('idleBehavior', 'slow')),
-    idleThresholdMinutes: clamp(cfg.get<unknown>('idleThresholdMinutes', 5), 1, 60),
+    idleThresholdMinutes: clamp(cfg.get<unknown>('idleThresholdMinutes', 5), 1, 60, 5),
     wordRarity: toBool(cfg.get<unknown>('wordRarity', false), false),
     timeBasedPools: toBool(cfg.get<unknown>('timeBasedPools', false), false),
   };

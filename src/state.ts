@@ -11,6 +11,9 @@ export class RingBuffer<T> {
     // Copy so callers can't mutate the internal buffer via a widened cast.
     return this.buf.slice();
   }
+  clear(): void {
+    this.buf = [];
+  }
 }
 
 // 'terminal' and 'diff' drive smart-state rules 3 and 4 in presence.ts.
