@@ -22,6 +22,9 @@ let lastInteractedSource: 'editor' | 'terminal' = 'editor';
 let currentClientId: symbol | undefined;
 let pushing = false;
 let pushDirty = false;
+// Track active debug session ids so we don't depend on VS Code's undocumented
+// event ordering around vscode.debug.activeDebugSession updates.
+const activeDebugSessions = new Set<string>();
 
 function getWorkspaceName(): string | undefined {
   const folders = vscode.workspace.workspaceFolders;
@@ -334,8 +337,14 @@ function handleConfigChange(next: Config): void {
   }
 
   if (transition.reconnect) {
-    // Drop any stale idle timer armed during the disabled period.
+    // Defensive clear: the disabled-period event path can't arm a timer
+    // (onWindowStateChange bails on !enabled), but clearing here keeps
+    // the invariant "re-enable starts from zero timers" explicit in case
+    // that guard is ever relaxed.
     clearIdleTimer();
+    // Drop any pending push debounce — resumeAfterReady will push fresh
+    // on ready and we don't want a stale 750ms timer racing that.
+    clearPushDebounce();
     // Re-prime isIdle from the current focus state so the re-enable
     // respects the user's current context (AFK during disable → idle).
     state.isIdle = !vscode.window.state.focused;
@@ -348,13 +357,16 @@ function handleConfigChange(next: Config): void {
 
   if (transition.clearPinnedWord) state.pinnedWord = undefined;
   if (transition.flushRecentWords) state.recentWords.clear();
-  if (transition.restartCycle) startCycle();
-  if (transition.restartIdleTimer) {
+  // On reconnect, skip cycle/idle/push restarts here — resumeAfterReady
+  // will apply the correct state when the new client becomes ready, and
+  // running these while !discord.isReady() is wasted work.
+  if (transition.restartCycle && !transition.reconnect) startCycle();
+  if (transition.restartIdleTimer && !transition.reconnect) {
     clearIdleTimer();
     idleTimeout = setTimeout(engageIdle, next.idleThresholdMinutes * 60_000);
   }
-  if (transition.applyIdleBehavior) applyIdleBehavior();
-  if (transition.schedulePush) schedulePush();
+  if (transition.applyIdleBehavior && !transition.reconnect) applyIdleBehavior();
+  if (transition.schedulePush && !transition.reconnect) schedulePush();
 }
 
 export function activate(context: vscode.ExtensionContext): void {
@@ -363,7 +375,11 @@ export function activate(context: vscode.ExtensionContext): void {
   state = createState(new Date(), initialLanguage, getWorkspaceName());
   lastInteractedSource = 'editor';
   state.focusContext = computeFocusContext();
-  state.debugActive = vscode.debug.activeDebugSession !== undefined;
+  // Seed the debug-session set from the currently-active session if any.
+  activeDebugSessions.clear();
+  const initialSession = vscode.debug.activeDebugSession;
+  if (initialSession?.id) activeDebugSessions.add(initialSession.id);
+  state.debugActive = activeDebugSessions.size > 0;
   // Treat boot-time unfocused as already-idle so the first connect respects
   // the user's idleBehavior contract instead of cycling for a full threshold
   // window before engaging.
@@ -375,7 +391,7 @@ export function activate(context: vscode.ExtensionContext): void {
       state.currentLanguage = editor?.document.languageId;
       if (editor) lastInteractedSource = 'editor';
       state.focusContext = computeFocusContext();
-      schedulePush();
+      if (config?.enabled) schedulePush();
     }),
     vscode.window.onDidChangeTextEditorSelection((event) => {
       if (!state) return;
@@ -388,7 +404,7 @@ export function activate(context: vscode.ExtensionContext): void {
       if (lastInteractedSource === 'editor') return;
       lastInteractedSource = 'editor';
       state.focusContext = computeFocusContext();
-      schedulePush();
+      if (config?.enabled) schedulePush();
     }),
     vscode.window.onDidChangeWindowState(() => {
       onWindowStateChange();
@@ -401,29 +417,31 @@ export function activate(context: vscode.ExtensionContext): void {
       // computations.
       else if (lastInteractedSource === 'terminal') lastInteractedSource = 'editor';
       state.focusContext = computeFocusContext();
-      schedulePush();
+      if (config?.enabled) schedulePush();
     }),
     vscode.window.tabGroups.onDidChangeTabs(() => {
       if (!state) return;
       state.focusContext = computeFocusContext();
-      schedulePush();
+      if (config?.enabled) schedulePush();
     }),
-    vscode.debug.onDidStartDebugSession(() => {
+    vscode.debug.onDidStartDebugSession((session) => {
       if (!state) return;
+      if (session?.id) activeDebugSessions.add(session.id);
       state.debugActive = true;
-      schedulePush();
+      if (config?.enabled) schedulePush();
     }),
-    vscode.debug.onDidTerminateDebugSession(() => {
+    vscode.debug.onDidTerminateDebugSession((session) => {
       if (!state) return;
-      if (vscode.debug.activeDebugSession === undefined) {
+      if (session?.id) activeDebugSessions.delete(session.id);
+      if (activeDebugSessions.size === 0) {
         state.debugActive = false;
-        schedulePush();
+        if (config?.enabled) schedulePush();
       }
     }),
     vscode.workspace.onDidChangeWorkspaceFolders(() => {
       if (!state) return;
       state.workspaceName = getWorkspaceName();
-      schedulePush();
+      if (config?.enabled) schedulePush();
     }),
     onConfigChange(handleConfigChange),
     ...registerCommands({ togglePaused }),
@@ -451,6 +469,7 @@ export function deactivate(): void {
   clearPushDebounce();
   pushing = false;
   pushDirty = false;
+  activeDebugSessions.clear();
   void discord.disconnect();
   state = undefined;
   config = undefined;

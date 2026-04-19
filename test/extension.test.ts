@@ -486,6 +486,26 @@ describe('debug session', () => {
     expect(instances[0].user?.setActivity).toHaveBeenCalled();
     __endDebugSession();
   });
+
+  it('clears debugActive on terminate regardless of activeDebugSession ordering', async () => {
+    vi.useFakeTimers();
+    extension.activate(mkContext() as never);
+    await Promise.resolve();
+    if (instances[0]) instances[0].isConnected = true;
+    __startDebugSession();
+    await vi.advanceTimersByTimeAsync(1_000);
+    // Simulate a terminate event where activeDebugSession is still set
+    // (stale, per VS Code undocumented ordering). The tracked set should
+    // still drop the session and clear debugActive.
+    __endDebugSession();
+    await vi.advanceTimersByTimeAsync(1_000);
+    instances[0].user!.setActivity.mockClear();
+    // Any subsequent push should no longer emit "Debugging in".
+    __setActiveEditor({ document: { languageId: 'typescript' } });
+    await vi.advanceTimersByTimeAsync(1_000);
+    const latest = instances[0].user!.setActivity.mock.calls.at(-1)?.[0] as { state?: string };
+    expect(latest?.state).not.toContain('Debugging');
+  });
 });
 
 describe('push mutex', () => {

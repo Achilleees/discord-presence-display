@@ -13,13 +13,23 @@ Tests live in `test/` and are excluded from `tsconfig.json` — Vitest compiles 
 
 ## Architecture
 
-Single-file VS Code extension (`src/extension.ts`) that maintains one persistent Discord IPC connection and rotates the activity payload on a timer. Module-level mutable state (`client`, `cycleInterval`, `reconnectTimeout`, `currentLanguage`, `startTimestamp`) is the source of truth — there's no class wrapper. `activate()` and `deactivate()` are responsible for the full lifecycle of these globals; any new background work must be torn down in `deactivate()`.
+8-file VS Code extension under `src/` with a thin `extension.ts` entry point. Module-level mutable state in `extension.ts` (`state`, `config`, intervals, timeouts, mutex/dirty flags, client-identity symbol, `activeDebugSessions` set) is the lifecycle source of truth; `activate()` and `deactivate()` own its full lifecycle. The pure logic modules (`transitions.ts`, `presence.ts`, `words.ts`) have no module-level mutable state.
+
+Module contracts (per `docs/plan.md` §Architecture):
+- `discord-client.ts` — Discord RPC connection, reconnect, cleanup; serialized via `inFlightConnect`.
+- `presence.ts` — `buildPresencePayload` + `pickCandidateWord` pure functions.
+- `transitions.ts` — pure `computeConfigTransition(prev, next, ctx)` returning an action object.
+- `config.ts` — reader + change-event listener; `clamp` and `toBool` coerce hand-edited values.
+- `commands.ts` — `claudeSpinner.toggle` registration.
+- `state.ts` — `createState()` factory and `RingBuffer` for anti-duplicate.
+- `words.ts` — 187-word list + `buildPool` + `getNextWord`.
 
 Key invariants:
 - **Discord is optional.** If `client.login()` throws (Discord not running), the extension schedules a 30s reconnect and stays silent — never surfaces errors to the user. Preserve this behavior.
-- **Hardcoded `CLIENT_ID`** in `extension.ts` is tied to a registered Discord application (asset key `claude-logo` lives there). Changing it breaks the large image.
-- **15-second cycle interval** and **30-second reconnect backoff** are deliberate (Discord rate-limits presence updates at ~5/20s).
+- **Hardcoded `CLIENT_ID`** in `extension.ts` is tied to a registered Discord application. The application must host all referenced asset keys: `vscode-spinner` (large image), `claude-logo` (small-image fallback), and 25 `lang-*` keys (see `LANG_SUPPORTED` in `presence.ts`). Changing `CLIENT_ID` requires rehosting every asset.
+- **5s minimum `cycleSpeed` and 30-second reconnect backoff** are deliberate (Discord rate-limits presence updates at ~5/20s). Default cycle is 15s.
 - `WORDS` in `src/words.ts` is a `readonly` tuple of exactly 187 entries — the count is asserted in `test/words.test.ts` and the README enumerates the full list. Adding/removing words requires updating both.
+- **Idle contracts** are load-bearing: `pause` keeps last presence visible, `clear` keeps presence cleared, `slow` quadruples the cycle (clamped to 120s), `none` keeps cycling normally. `pushImmediate` and `startCycle` both enforce the silence contracts; `resumeAfterReady` bypasses with `{ bypassIdleSilence: true }` only for the single restore push on reconnect.
 
 ## Repo conventions
 
