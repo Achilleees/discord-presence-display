@@ -17,7 +17,7 @@ Tests live in `test/` and are excluded from `tsconfig.json` — Vitest compiles 
 
 8-file VS Code extension under `src/` with a thin `extension.ts` entry point. Module-level mutable state in `extension.ts` (`state`, `config`, intervals, timeouts, mutex/dirty flags, client-identity symbol, `activeDebugSessions` set) is the lifecycle source of truth; `activate()` and `deactivate()` own its full lifecycle. The pure logic modules (`transitions.ts`, `presence.ts`, `words.ts`) have no module-level mutable state.
 
-Module contracts (per `docs/plan.md` §Architecture):
+Module contracts:
 - `discord-client.ts` — Discord RPC connection, reconnect, cleanup; serialized via `inFlightConnect`.
 - `presence.ts` — `buildPresencePayload` + `pickCandidateWord` pure functions.
 - `transitions.ts` — pure `computeConfigTransition(prev, next, ctx)` returning an action object.
@@ -35,5 +35,5 @@ Key invariants:
 
 ## Repo conventions
 
-- `docs/plan.md` is the single source of truth for v1.0 scope, design decisions, and build sequence. Consult it before adding new work.
-- `.vscodeignore` controls what ships in the `.vsix` — keep `src/`, `test/`, `docs/`, `.map`, and `.d.ts` files excluded so the package stays small.
+- `ROADMAP.md` at the repo root documents what's next and what's permanently out of scope. `CHANGELOG.md` captures shipped work. Check both before adding new features to stay aligned with existing scope decisions.
+- `.vscodeignore` controls what ships in the `.vsix` — keep `src/`, `test/`, dev-only asset folders (`assets/discord/`, `assets/screenshots/`, `assets/archive/`, `icon-candidates/`), source maps, and type declarations excluded so the package stays small. When adding a new dev-only directory, extend `.vscodeignore` to match.
