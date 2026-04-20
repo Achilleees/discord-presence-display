@@ -23,6 +23,10 @@ const FALLBACK_SMALL_TEXT = 'Powered by Claude Code';
 const LANG_SUPPORTED: ReadonlySet<string> = new Set<string>([
   'typescript',
   'javascript',
+  'react',
+  'vue',
+  'svelte',
+  'astro',
   'python',
   'rust',
   'go',
@@ -46,11 +50,25 @@ const LANG_SUPPORTED: ReadonlySet<string> = new Set<string>([
   'yaml',
   'markdown',
   'c',
+  'r',
+  'matlab',
+  'julia',
+  'ocaml',
+  'fsharp',
+  'clojure',
+  'erlang',
+  'perl',
+  'groovy',
+  'powershell',
+  'objectivec',
+  'graphql',
+  'docker',
+  'latex',
 ]);
 
 const LANG_ID_OVERRIDES: Readonly<Record<string, string>> = {
-  typescriptreact: 'typescript',
-  javascriptreact: 'javascript',
+  typescriptreact: 'react',
+  javascriptreact: 'react',
   shellscript: 'shell',
   bash: 'shell',
   zsh: 'shell',
@@ -58,17 +76,25 @@ const LANG_ID_OVERRIDES: Readonly<Record<string, string>> = {
   jsonc: 'json',
   scss: 'css',
   less: 'css',
+  dockerfile: 'docker',
+  'objective-c': 'objectivec',
+  'objective-cpp': 'objectivec',
 };
 
-// Superset of LANG_SUPPORTED: includes display names for languages that
-// don't have dedicated icons (PowerShell, Objective-C/++, HLSL, shell
-// dialects). Those render with the claude-logo fallback but a correct
-// language name in the tooltip and state line.
+// Superset of LANG_SUPPORTED. Includes display names for dialect languageIds
+// that route to a parent icon via LANG_ID_OVERRIDES (bash → shell, jsonc →
+// json, scss → css, dockerfile → docker, objective-c → objectivec) plus any
+// languageId without a dedicated icon (HLSL). The latter renders the
+// claude-logo fallback but keeps a correct language name in the tooltip.
 const LANG_DISPLAY: Readonly<Record<string, string>> = {
   typescript: 'TypeScript',
-  typescriptreact: 'TypeScript',
   javascript: 'JavaScript',
-  javascriptreact: 'JavaScript',
+  react: 'React',
+  typescriptreact: 'React',
+  javascriptreact: 'React',
+  vue: 'Vue',
+  svelte: 'Svelte',
+  astro: 'Astro',
   python: 'Python',
   rust: 'Rust',
   go: 'Go',
@@ -100,8 +126,22 @@ const LANG_DISPLAY: Readonly<Record<string, string>> = {
   jsonc: 'JSON',
   yaml: 'YAML',
   markdown: 'Markdown',
+  r: 'R',
+  matlab: 'MATLAB',
+  julia: 'Julia',
+  ocaml: 'OCaml',
+  fsharp: 'F#',
+  clojure: 'Clojure',
+  erlang: 'Erlang',
+  perl: 'Perl',
+  groovy: 'Groovy',
+  objectivec: 'Objective-C',
   'objective-c': 'Objective-C',
   'objective-cpp': 'Objective-C++',
+  graphql: 'GraphQL',
+  docker: 'Docker',
+  dockerfile: 'Docker',
+  latex: 'LaTeX',
   hlsl: 'HLSL',
 };
 

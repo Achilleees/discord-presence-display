@@ -7,40 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [1.0.0] - 2026-04-20
 
+First full public release. Everything a Rich Presence extension for VS Code should do — the cycling word, the language icon, smart state detection, idle handling — behind a single install-and-forget install.
+
 ### Added
 
-- **13 user settings** under `claudeSpinner.*` (enabled, cycleSpeed, cycleWords, customWords, showLanguage, showWorkspace, showElapsedTime, showLanguageIcon, smartState, idleBehavior, idleThresholdMinutes, wordRarity, timeBasedPools) — all live-reload
-- **Toggle command** (`Toggle Coding Status Presence`) to pause and resume presence from the command palette
-- **Smart state line** — adapts to debugging (`Debugging in X`), diff review (`Reviewing in X`), and terminal focus (`In the terminal`)
-- **Language icon overlay** for 25 languages (TypeScript, JavaScript, Python, Rust, Go, Java, C++, C#, HTML, CSS, Ruby, PHP, Swift, Kotlin, Dart, Lua, Elixir, Haskell, Scala, Shell, SQL, JSON, YAML, Markdown, C) with Claude-logo fallback
-- **Idle handling** with four behaviors: slow (4×, clamped 120s), pause, clear, none — configurable threshold (1–60 min)
-- **Anti-duplicate picker** — the next word is guaranteed not to appear in the last 3 picks (or `pool.length / 2`, whichever is smaller)
-- **Optional rarity weighting** (opt-in) — common (~70%), uncommon (~25%), rare (~5%)
-- **Optional time-based word pools** (opt-in) — bias toward warming-up, in-the-zone, or deep-session word groups based on session length
-- **Custom words** (`customWords` setting) — user-defined spinner words appended to the rotation
-- **Workspace name** (opt-in, off by default) — appended to the status line via `showWorkspace`
+- **13 user settings** under `claudeSpinner.*` (`enabled`, `cycleSpeed`, `cycleWords`, `customWords`, `showLanguage`, `showWorkspace`, `showElapsedTime`, `showLanguageIcon`, `smartState`, `idleBehavior`, `idleThresholdMinutes`, `wordRarity`, `timeBasedPools`) — all live-reload, no restart required.
+- **Toggle command** (`Toggle Coding Status Presence`) to pause and resume presence from the command palette.
+- **Smart state line** — adapts to debugging (`Debugging in X`), diff review (`Reviewing in X`), terminal focus (`In the terminal`), and regular work (`Working in X`).
+- **Language icon overlay for 43 languages and frameworks** — TypeScript, JavaScript, React (`.tsx`/`.jsx`), Vue, Svelte, Astro, Python, Rust, Go, Java, C, C++, C#, HTML, CSS, Ruby, PHP, Swift, Kotlin, Dart, Lua, Elixir, Haskell, Scala, Shell (+bash/zsh/fish), SQL, JSON, YAML, Markdown, R, MATLAB, Julia, OCaml, F#, Clojure, Erlang, Perl, Groovy, PowerShell, Objective-C, GraphQL, Docker, LaTeX. Anything else falls back to the Claude logo while keeping the language name in the tooltip.
+- **Idle handling** with four behaviors: `slow` (4× interval, clamped to 120s), `pause`, `clear`, `none`. Configurable threshold (1–60 min).
+- **Anti-duplicate word picker** — the next word is guaranteed not to match any of the last 3 picks (or `pool.length / 2`, whichever is smaller), so slow cycle speeds never look frozen.
+- **Optional rarity weighting** — common (~70%), uncommon (~25%), rare (~5%) when `wordRarity` is on.
+- **Optional time-based word pools** — biases toward warming-up, in-the-zone, or deep-session word groups based on session length.
+- **Custom words** via `customWords` — user-defined spinner words mixed into the rotation alongside the built-ins.
+- **Workspace name** (opt-in, off by default) appended to the status line via `showWorkspace`.
+- **Automatic reconnection** every 30 seconds if Discord restarts, with no user-visible errors or noise.
 
 ### Changed
 
-- Renamed package to `coding-status-for-discord` (display: "Coding Status for Discord")
-- Split `src/extension.ts` into 8 modules: `extension`, `discord-client`, `presence`, `transitions`, `config`, `commands`, `state`, `words`
-- Rebranded Discord activity with `vscode-spinner` as the large image and `Visual Studio Code` as its tooltip
-- Small image now uses a per-language icon when available; falls back to the Claude logo with `Powered by Claude Code`
+- **Bundled with esbuild** — single `dist/extension.js` file. VSIX shrunk from 2.28 MB / 1398 files to 490 KB / 8 files. Faster install, faster activation.
+- Split `src/extension.ts` into 8 focused modules: `extension`, `discord-client`, `presence`, `transitions`, `config`, `commands`, `state`, `words`.
+- Discord activity now uses `vscode-spinner` as the large image (with `Visual Studio Code` as its tooltip); the small image is a per-language icon with the Claude logo as the fallback.
 
 ### Fixed
 
-- **Reconnect resource leak** — `connect()` now destroys the previous client before creating a new one
-- **Back-to-back duplicate words** — anti-duplicate picker prevents the status from appearing frozen at slow speeds
-- **No-editor-focus silence** — state line omits cleanly when the language is unknown and smart state is inactive
-
-## [0.1.0] - 2026-04-16
-
-### Added
-
-- Initial release as `discord-presence-display` (renamed to `coding-status-for-discord` in 1.0.0)
-- Discord Rich Presence integration via `@xhayper/discord-rpc`
-- 187 rotating spinner words from Claude Code
-- Current programming language displayed on profile click
-- Elapsed coding time tracking
-- Automatic reconnection when Discord restarts
-- Silent fallback when Discord is not running
+- **Reconnect resource leak** — `connect()` destroys the previous client cleanly before creating a new one, and a `wantsConnection` flag prevents a mid-flight reconnect from resurrecting a client the user just disabled.
+- **Spurious `clearActivity` on reconnect-while-paused** — `resumeAfterReady` now short-circuits if the user has explicitly paused presence.
+- **Back-to-back duplicate words** — anti-duplicate ring buffer prevents the status from looking frozen at slow cycle speeds.
+- **No-editor-focus silence** — state line omits cleanly when the language is unknown and no smart-state trigger is active; no more `Working in undefined` glitches.
+- **Unicode control chars in `customWords`** — entries containing RTL-override, zero-width, or other invisible format chars are now rejected during sanitisation so Discord can't render reversed or garbled text.

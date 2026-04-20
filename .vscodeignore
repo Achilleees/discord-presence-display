@@ -5,6 +5,9 @@ test/**
 docs/**
 dist/**/*.map
 dist/**/*.d.ts
+assets/icon.svg
+assets/discord/**
+assets/screenshots/**
 tsconfig.json
 vitest.config.ts
 esbuild.config.mjs

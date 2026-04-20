@@ -5,3 +5,4 @@ dist/
 Thumbs.db
 *.swp
 .env
+assets/discord/png/

@@ -10,7 +10,7 @@ A VS Code extension that turns your editor activity into Discord Rich Presence: 
 
 - Zero configuration — install and it works
 - 187 spinner words from Claude Code, rotating every 15 seconds (configurable)
-- Language detection with per-language icons for 25 common languages
+- Language detection with per-language icons for 43 languages (and growing)
 - Session elapsed time shown on your Discord profile
 - **Smart state:** changes the status line when you're debugging, reviewing a diff, or focused on the terminal
 - **Idle handling:** slows down, pauses, or clears presence when VS Code loses focus for too long
@@ -18,12 +18,6 @@ A VS Code extension that turns your editor activity into Discord Rich Presence: 
 - Auto-reconnects if Discord is restarted
 - Silently does nothing if Discord isn't running — no errors, no noise
 - No telemetry, no network calls beyond the local Discord IPC socket
-
----
-
-## Install
-
-Search **Coding Status for Discord** in the Extensions panel (`Ctrl+Shift+X`), or install from the Marketplace.
 
 ---
 
@@ -87,7 +81,16 @@ Re-focusing pushes a fresh presence immediately and restores the normal cycle.
 
 ## Language icons
 
-Built-in icons are mapped for 25 languages: TypeScript, JavaScript, Python, Rust, Go, Java, C++, C#, HTML, CSS, Ruby, PHP, Swift, Kotlin, Dart, Lua, Elixir, Haskell, Scala, Shell, SQL, JSON, YAML, Markdown, C. Anything else falls back to the Claude logo.
+Dedicated icons for 43 languages and frameworks — anything else falls back to the Claude logo while keeping its name in the tooltip.
+
+<details>
+<summary>Full list</summary>
+
+TypeScript, JavaScript, React *(.tsx / .jsx)*, Vue, Svelte, Astro, Python, Rust, Go, Java, C, C++, C#, HTML, CSS, Ruby, PHP, Swift, Kotlin, Dart, Lua, Elixir, Haskell, Scala, Shell *(+ bash, zsh, fish)*, SQL, JSON, YAML, Markdown, R, MATLAB, Julia, OCaml, F#, Clojure, Erlang, Perl, Groovy, PowerShell, Objective-C *(+ Objective-C++)*, GraphQL, Docker, LaTeX.
+
+</details>
+
+Missing one you use? [Open an issue](https://github.com/Achilleees/discord-presence-display/issues) and I'll add it.
 
 ---
 
@@ -181,9 +184,17 @@ Zigzagging
 
 ---
 
+## Thanks
+
+Thanks for installing! If you enjoy it, [a star on GitHub](https://github.com/Achilleees/discord-presence-display) goes a long way — it's honestly how I decide what to keep polishing. Bugs, feature requests, and new-language suggestions are all welcome in [issues](https://github.com/Achilleees/discord-presence-display/issues).
+
+---
+
 ## Credits
 
-Word list sourced from [Claude Code](https://claude.ai/claude-code) by Anthropic.
+The spinner word list comes from [Claude Code](https://claude.ai/claude-code) by Anthropic. Most language icons are from [Devicon](https://devicon.dev/); a few data-format icons (JSON, YAML, SQL) come from the [Material Icon Theme](https://github.com/material-extensions/vscode-material-icon-theme) — both MIT-licensed. The Anthropic logomark is from [Simple Icons](https://simpleicons.org/) (CC0), and the VS Code logo is from Devicon. Rich Presence integration is powered by [@xhayper/discord-rpc](https://github.com/xhayper/discord-rpc).
+
+Huge thanks to every maintainer of those projects.
 
 ---
 

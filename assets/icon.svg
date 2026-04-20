@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <title>Coding Status for Discord — active editor tab broadcasting</title>
+
+  <!-- Back tab (furthest, darkest) -->
+  <rect x="84" y="384" width="316" height="54" rx="11" fill="#2D3036"/>
+  <rect x="104" y="407" width="96" height="8" rx="3" fill="#4A4E57"/>
+
+  <!-- Middle tab -->
+  <rect x="64" y="322" width="336" height="60" rx="12" fill="#40444B"/>
+  <rect x="84" y="346" width="112" height="9" rx="3.5" fill="#6B7280"/>
+
+  <!-- Active tab base -->
+  <rect x="44" y="184" width="356" height="136" rx="16" fill="#5865F2"/>
+
+  <!-- Active tab: subtle top-edge highlight -->
+  <path d="M 60 188 L 384 188" stroke="#FFFFFF" stroke-opacity="0.14" stroke-width="1.5" stroke-linecap="round"/>
+
+  <!-- Active tab: titlebar strip (darker blurple) -->
+  <path d="M 60 184 L 384 184 A 16 16 0 0 1 400 200 L 400 216 L 44 216 L 44 200 A 16 16 0 0 1 60 184 Z" fill="#4752C4"/>
+
+  <!-- Titlebar: filename bar -->
+  <rect x="66" y="194" width="132" height="12" rx="3" fill="#FFFFFF" fill-opacity="0.30"/>
+
+  <!-- Titlebar: modified / active indicator dot -->
+  <circle cx="380" cy="200" r="5" fill="#FFFFFF" fill-opacity="0.88"/>
+
+  <!-- Code lines in active tab body -->
+  <g stroke="#FFFFFF" stroke-linecap="round" stroke-width="11" fill="none">
+    <line x1="66" y1="242" x2="310" y2="242" stroke-opacity="0.95"/>
+    <line x1="102" y1="268" x2="268" y2="268" stroke-opacity="0.65"/>
+    <line x1="66" y1="294" x2="346" y2="294" stroke-opacity="0.86"/>
+  </g>
+
+  <!-- Broadcast arcs — concentric, emanating from upper-right corner of active tab -->
+  <g stroke="#5865F2" stroke-linecap="round" fill="none">
+    <path d="M 452 170 A 54 54 0 0 1 400 130" stroke-width="13"/>
+    <path d="M 483 162 A 86 86 0 0 1 400 98" stroke-width="10" stroke-opacity="0.66"/>
+    <path d="M 506 156 A 110 110 0 0 1 400 74" stroke-width="7" stroke-opacity="0.36"/>
+  </g>
+</svg>

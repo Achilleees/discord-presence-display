@@ -43,15 +43,17 @@ describe('getLanguageIconKey', () => {
     expect(getLanguageIconKey('rust')).toBe('lang-rust');
   });
 
-  it('normalizes overrides (typescriptreact → typescript)', () => {
-    expect(getLanguageIconKey('typescriptreact')).toBe('lang-typescript');
-    expect(getLanguageIconKey('javascriptreact')).toBe('lang-javascript');
+  it('normalizes overrides (typescriptreact → react)', () => {
+    expect(getLanguageIconKey('typescriptreact')).toBe('lang-react');
+    expect(getLanguageIconKey('javascriptreact')).toBe('lang-react');
     expect(getLanguageIconKey('shellscript')).toBe('lang-shell');
     expect(getLanguageIconKey('scss')).toBe('lang-css');
+    expect(getLanguageIconKey('dockerfile')).toBe('lang-docker');
+    expect(getLanguageIconKey('objective-c')).toBe('lang-objectivec');
   });
 
   it('falls back to claude-logo for unknown languages', () => {
-    expect(getLanguageIconKey('ocaml')).toBe('claude-logo');
+    expect(getLanguageIconKey('cobol')).toBe('claude-logo');
     expect(getLanguageIconKey('somelang')).toBe('claude-logo');
   });
 
@@ -67,8 +69,26 @@ describe('getLanguageDisplayName', () => {
     expect(getLanguageDisplayName('cpp')).toBe('C++');
   });
 
-  it('capitalizes unknown ids', () => {
-    expect(getLanguageDisplayName('zig')).toBe('Zig');
+  it('renders React for typescriptreact / javascriptreact', () => {
+    expect(getLanguageDisplayName('typescriptreact')).toBe('React');
+    expect(getLanguageDisplayName('javascriptreact')).toBe('React');
+  });
+
+  it('renders Docker for dockerfile and Objective-C for objective-c', () => {
+    expect(getLanguageDisplayName('dockerfile')).toBe('Docker');
+    expect(getLanguageDisplayName('objective-c')).toBe('Objective-C');
+    expect(getLanguageDisplayName('objective-cpp')).toBe('Objective-C++');
+  });
+
+  it('renders pretty names for expanded langs (OCaml, F#, MATLAB, LaTeX)', () => {
+    expect(getLanguageDisplayName('ocaml')).toBe('OCaml');
+    expect(getLanguageDisplayName('fsharp')).toBe('F#');
+    expect(getLanguageDisplayName('matlab')).toBe('MATLAB');
+    expect(getLanguageDisplayName('latex')).toBe('LaTeX');
+  });
+
+  it('capitalizes truly unknown ids', () => {
+    expect(getLanguageDisplayName('cobol')).toBe('Cobol');
   });
 });
 
@@ -209,11 +229,11 @@ describe('buildPresencePayload', () => {
   });
 
   it('falls back small image to claude-logo but still names the language in the tooltip', () => {
-    const state = baseState({ currentLanguage: 'ocaml' });
+    const state = baseState({ currentLanguage: 'cobol' });
     const p = buildPresencePayload(state, baseConfig(), 'Working');
     expect(p?.smallImageKey).toBe('claude-logo');
-    // Tooltip should match the state line — both say the language is OCaml-ish.
-    expect(p?.smallImageText).toBe('Ocaml');
+    // Tooltip should match the state line — both say the language is Cobol-ish.
+    expect(p?.smallImageText).toBe('Cobol');
   });
 
   it('uses "Powered by Claude Code" tooltip only when there is no language', () => {
