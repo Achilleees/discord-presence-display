@@ -7,6 +7,7 @@ dist/**/*.map
 dist/**/*.d.ts
 tsconfig.json
 vitest.config.ts
+esbuild.config.mjs
 .gitignore
 .vscodeignore
 package-lock.json

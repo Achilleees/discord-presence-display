@@ -30,14 +30,25 @@ function toBool(raw: unknown, def: boolean): boolean {
   return typeof raw === 'boolean' ? raw : def;
 }
 
+const CUSTOM_WORDS_MAX = 500;
+// Reject ASCII control chars (C0), DEL, Unicode C1 controls, zero-width and
+// directional-format chars (incl. RTL override U+202E, BOM). Any of these
+// would render as garbage or reversed text in Discord's details field.
+// eslint-disable-next-line no-control-regex
+const CONTROL_CHAR = /[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u2028-\u202f\ufeff]/u;
+
 function sanitizeCustomWords(raw: unknown): string[] {
   if (!Array.isArray(raw)) return [];
   const seen = new Set<string>();
   const out: string[] = [];
   for (const entry of raw) {
+    if (out.length >= CUSTOM_WORDS_MAX) break;
     if (typeof entry !== 'string') continue;
     const trimmed = entry.trim();
     if (trimmed.length === 0 || trimmed.length > 128) continue;
+    // Reject newlines, tabs, and other control chars that would render
+    // weirdly in Discord's details field.
+    if (CONTROL_CHAR.test(trimmed)) continue;
     if (seen.has(trimmed)) continue;
     seen.add(trimmed);
     out.push(trimmed);

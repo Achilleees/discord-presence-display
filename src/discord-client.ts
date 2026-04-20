@@ -8,6 +8,11 @@ interface ClientCallbacks {
 
 let client: Client | null = null;
 let inFlightConnect: Promise<void> | null = null;
+// Tracks the caller's most recent intent. connect() sets this true; disconnect()
+// sets it false. The connect() body re-checks this after its mid-destroy await
+// window so a disconnect() that arrived during that window (when `client` is
+// transiently null) doesn't get steamrolled by a subsequent login.
+let wantsConnection = false;
 
 function raceWithTimeout<T>(promise: Promise<T>, ms: number): Promise<T | undefined> {
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -26,6 +31,7 @@ export function isReady(): boolean {
 }
 
 export async function connect(clientId: string, callbacks: ClientCallbacks = {}): Promise<void> {
+  wantsConnection = true;
   // Serialize concurrent callers by chaining. Two-or-more callers awaiting
   // the same prior promise would previously fork — each create their own
   // Client — and leak sockets. Chaining off `inFlightConnect` at call time
@@ -34,12 +40,18 @@ export async function connect(clientId: string, callbacks: ClientCallbacks = {})
   const prior = inFlightConnect;
   const run: Promise<void> = (async () => {
     if (prior) await prior.catch(() => {});
+    if (!wantsConnection) return;
 
     if (client) {
       const previous = client;
       client = null;
       await raceWithTimeout(previous.destroy().catch(() => {}), 3_000);
     }
+
+    // Re-check after the destroy window: a concurrent disconnect() that
+    // arrived while client was null would have bailed early, so we'd
+    // otherwise resurrect a connection the user explicitly tore down.
+    if (!wantsConnection) return;
 
     const next = new Client({ clientId });
     client = next;
@@ -71,6 +83,7 @@ export async function connect(clientId: string, callbacks: ClientCallbacks = {})
 }
 
 export async function disconnect(): Promise<void> {
+  wantsConnection = false;
   if (!client) return;
   const c = client;
   client = null;

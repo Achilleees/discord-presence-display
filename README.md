@@ -4,9 +4,6 @@
 
 A VS Code extension that turns your editor activity into Discord Rich Presence: the language you're in, the time you've been at it, and a rotating spinner word borrowed from Claude Code's loading animation — so your status reads `Cogitating...`, `Moonwalking...`, or the occasional `Flibbertigibbeting...` while you code.
 
-<!-- Save your capture to assets/screenshot.gif (or .png) then remove the two comment markers on the line below -->
-<!-- ![Coding Status for Discord cycling words in Discord Rich Presence](assets/screenshot.gif) -->
-
 ---
 
 ## Features
@@ -27,8 +24,6 @@ A VS Code extension that turns your editor activity into Discord Rich Presence: 
 ## Install
 
 Search **Coding Status for Discord** in the Extensions panel (`Ctrl+Shift+X`), or install from the Marketplace.
-
-<!-- TODO: marketplace badge -->
 
 ---
 

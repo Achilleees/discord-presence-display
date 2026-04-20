@@ -239,6 +239,11 @@ async function connectFlow(): Promise<void> {
 function resumeAfterReady(): void {
   if (!state || !config) return;
 
+  // Paused is explicit user intent — don't re-push presence on reconnect.
+  // The Discord connection stays open; presence stays cleared until the
+  // user toggles back on.
+  if (state.paused) return;
+
   if (state.isIdle && config.idleBehavior === 'clear') {
     void discord.clearPresence();
     return;
