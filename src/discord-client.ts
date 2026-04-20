@@ -93,8 +93,9 @@ export async function disconnect(): Promise<void> {
 export async function pushPresence(activity: SetActivity): Promise<boolean> {
   const c = client;
   if (!c?.isConnected) return false;
+  if (!c.user) return false;
   try {
-    await c.user?.setActivity(activity);
+    await c.user.setActivity(activity);
     return true;
   } catch {
     return false;
