@@ -20,9 +20,14 @@
   "keywords": [
     "discord",
     "rich-presence",
-    "status",
+    "coding-status",
+    "activity",
     "spinner",
-    "claude"
+    "rpc",
+    "claude",
+    "status",
+    "presence",
+    "coding-activity"
   ],
   "engines": {
     "vscode": "^1.85.0"
