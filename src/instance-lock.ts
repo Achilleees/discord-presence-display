@@ -74,6 +74,11 @@ export function tryAcquire(): boolean {
 
   try {
     writeLockData();
+    const verify = readLock();
+    if (!verify || verify.pid !== process.pid) {
+      stopHeartbeat();
+      return false;
+    }
     startHeartbeat();
     return true;
   } catch {

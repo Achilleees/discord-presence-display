@@ -35,6 +35,11 @@ vi.mock('@xhayper/discord-rpc', () => {
   };
 });
 
+vi.mock('../src/instance-lock', () => ({
+  tryAcquire: vi.fn().mockReturnValue(true),
+  release: vi.fn(),
+}));
+
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-expect-error mock module resolved via vitest alias
 import {

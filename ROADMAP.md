@@ -1,6 +1,6 @@
 # Roadmap
 
-- [ ] Terminal focus icon — switch the small image to a terminal glyph when `focusContext === 'terminal'` (asset prepared, code not wired)
+- [ ] Terminal focus icon — switch the small image to a terminal glyph when `focusContext === 'terminal'` (asset not yet prepared, code not wired)
 - [ ] Hero screenshot/GIF at the top of the README
 - [ ] Keybinding for `claudeSpinner.toggle`
 - [ ] GitHub Actions CI running `npm test && npm run typecheck && npm run build` on PR
