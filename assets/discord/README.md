@@ -8,7 +8,6 @@ Source-of-truth for every asset uploaded to the Discord Developer Portal applica
 |---|---|---|
 | `vscode-spinner.svg` | `vscode-spinner` | Large image — the big square on the activity card |
 | `claude-logo.svg` | `claude-logo` | Small-image fallback when language is unknown |
-| `terminal.svg` | `terminal` | Reserved for a future terminal-focus feature (not referenced by the current code) |
 | `languages/lang-*.svg` | `lang-*` | Small images for the 43 supported languages (e.g. `lang-typescript.svg` → key `lang-typescript`) |
 
 Filenames match the Discord asset keys consumed in `src/presence.ts`. **Do not rename them** without updating the corresponding constants (`LANG_SUPPORTED`, `FALLBACK_SMALL_IMAGE`, `LARGE_IMAGE_KEY`).
@@ -19,7 +18,7 @@ Filenames match the Discord asset keys consumed in `src/presence.ts`. **Do not r
 
    ```bash
    cd assets/discord
-   bash convert.sh          # writes ./png/ with all 46 PNGs at 1024×1024
+   bash convert.sh          # writes ./png/ with all 45 PNGs at 1024×1024
    ```
 
    Requires ImageMagick on `PATH`. Install via `scoop install imagemagick` / `winget install ImageMagick.ImageMagick` (Windows), or `brew install imagemagick` (macOS).
@@ -33,10 +32,9 @@ Filenames match the Discord asset keys consumed in `src/presence.ts`. **Do not r
 ## Sources
 
 - **VS Code logo** — [Devicon](https://devicon.dev/) (MIT)
-- **Anthropic logomark** — [Simple Icons](https://simpleicons.org/) (CC0)
-- **Terminal** — [Material Icon Theme](https://github.com/material-extensions/vscode-material-icon-theme) (MIT; filename `console.svg` in the source)
+- **Claude mark** — [Simple Icons](https://simpleicons.org/) (CC0)
 - **40 language icons** — Devicon (MIT)
-- **json, yaml, sql** — Material Icon Theme (MIT)
+- **json, yaml, sql** — [Material Icon Theme](https://github.com/material-extensions/vscode-material-icon-theme) (MIT)
 
 ## Adding a new language
 

@@ -6,3 +6,5 @@ Thumbs.db
 *.swp
 .env
 assets/discord/png/
+assets/archive/
+icon-candidates/

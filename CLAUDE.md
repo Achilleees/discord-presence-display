@@ -4,8 +4,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Commands
 
-- `npm run build` — compile `src/` to `dist/` via `tsc` (no bundler)
-- `npm run watch` — incremental TypeScript build; the default VS Code build task, auto-run by the `Run Extension` launch config (F5)
+- `npm run build` — typecheck (`tsc --noEmit`) + bundle via esbuild to `dist/extension.js` (minified, single file)
+- `npm run bundle` — esbuild-only (no typecheck), for fast iteration
+- `npm run typecheck` — `tsc --noEmit`, types only (no emit — esbuild owns the emit)
+- `npm run watch` — `esbuild --watch`; default VS Code build task, auto-run by the `Run Extension` launch config (F5)
 - `npm test` — run the Vitest suite once (`vitest run`); single test: `npx vitest run test/words.test.ts -t "name"`
 - `npm run package` — produce a `.vsix` via `vsce package`; `vscode:prepublish` runs `build` automatically
 
