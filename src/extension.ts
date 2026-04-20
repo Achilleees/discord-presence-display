@@ -222,7 +222,8 @@ function startLockCheck(): void {
     if (tryAcquire()) {
       isPrimary = true;
       stopLockCheck();
-      state!.isIdle = !vscode.window.state.focused;
+      if (!state) return;
+      state.isIdle = !vscode.window.state.focused;
       void connectFlow();
       onWindowStateChange();
     }
