@@ -5,9 +5,11 @@ import { createState, type FocusContext, type State } from './state';
 import { buildPresencePayload, pickCandidateWord } from './presence';
 import { computeConfigTransition } from './transitions';
 import { registerCommands } from './commands';
+import { tryAcquire, release } from './instance-lock';
 
 const CLIENT_ID = '1494346699861397636';
 const RECONNECT_MS = 30_000;
+const LOCK_CHECK_MS = 30_000;
 const PUSH_DEBOUNCE_MS = 750;
 const IDLE_SLOW_MAX_SECONDS = 120;
 const IDLE_SLOW_MULTIPLIER = 4;
@@ -20,6 +22,8 @@ let idleTimeout: ReturnType<typeof setTimeout> | undefined;
 let pushDebounce: ReturnType<typeof setTimeout> | undefined;
 let lastInteractedSource: 'editor' | 'terminal' = 'editor';
 let currentClientId: symbol | undefined;
+let lockCheckInterval: ReturnType<typeof setInterval> | undefined;
+let isPrimary = false;
 let pushing = false;
 let pushDirty = false;
 let pushDirtyBypass = false;
@@ -197,15 +201,47 @@ function clearIdleTimer(): void {
 
 function scheduleReconnect(): void {
   if (reconnectTimeout) return;
-  if (!config?.enabled) return;
+  if (!config?.enabled || !isPrimary) return;
   reconnectTimeout = setTimeout(() => {
     reconnectTimeout = undefined;
     void connectFlow();
   }, RECONNECT_MS);
 }
 
+function stopLockCheck(): void {
+  if (lockCheckInterval) {
+    clearInterval(lockCheckInterval);
+    lockCheckInterval = undefined;
+  }
+}
+
+function startLockCheck(): void {
+  stopLockCheck();
+  lockCheckInterval = setInterval(() => {
+    if (!config?.enabled) return;
+    if (tryAcquire()) {
+      isPrimary = true;
+      stopLockCheck();
+      state!.isIdle = !vscode.window.state.focused;
+      void connectFlow();
+      onWindowStateChange();
+    }
+  }, LOCK_CHECK_MS);
+}
+
+function acquireOrWatch(): void {
+  if (tryAcquire()) {
+    isPrimary = true;
+    void connectFlow();
+    onWindowStateChange();
+  } else {
+    isPrimary = false;
+    startLockCheck();
+  }
+}
+
 async function connectFlow(): Promise<void> {
-  if (!config?.enabled) return;
+  if (!config?.enabled || !isPrimary) return;
 
   const myId = Symbol('client');
   currentClientId = myId;
@@ -371,6 +407,8 @@ function handleConfigChange(next: Config): void {
     // doesn't arm a stray post-shutdown debounce via its finally block.
     pushDirty = false;
     pushDirtyBypass = false;
+    stopLockCheck();
+    if (isPrimary) { release(); isPrimary = false; }
     void discord.disconnect();
     return;
   }
@@ -387,9 +425,7 @@ function handleConfigChange(next: Config): void {
     // Re-prime isIdle from the current focus state so the re-enable
     // respects the user's current context (AFK during disable → idle).
     state.isIdle = !vscode.window.state.focused;
-    void connectFlow();
-    // Arm the idle timer if appropriate given the re-enabled state.
-    onWindowStateChange();
+    acquireOrWatch();
     // Fall through so any other changes that came in the same save
     // (cycleSpeed, customWords, idleBehavior, etc.) still apply.
   }
@@ -488,12 +524,7 @@ export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(...disposables);
 
   if (config.enabled) {
-    void connectFlow();
-    // Only arm the idle machinery when the extension is actually active;
-    // otherwise a disabled extension that boots unfocused would eventually
-    // fire engageIdle → applyIdleBehavior → startCycle, creating a dormant
-    // interval that ticks pointlessly while !discord.isReady().
-    onWindowStateChange();
+    acquireOrWatch();
   }
 }
 
@@ -510,6 +541,8 @@ export function deactivate(): void {
   pushDirty = false;
   pushDirtyBypass = false;
   activeDebugSessions.clear();
+  stopLockCheck();
+  if (isPrimary) { release(); isPrimary = false; }
   void discord.disconnect();
   state = undefined;
   config = undefined;
