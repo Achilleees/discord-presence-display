@@ -6,6 +6,7 @@ docs/**
 dist/**/*.map
 dist/**/*.d.ts
 assets/icon.svg
+assets/icon-source.svg
 assets/discord/**
 assets/screenshots/**
 assets/archive/**
