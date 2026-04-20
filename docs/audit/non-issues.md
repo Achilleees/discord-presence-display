@@ -21,6 +21,12 @@ reads this file and skips matching patterns in future audits.
 - **Why it's correct:** `sanitizeCustomWords` deduplicates before values reach config, so the path cannot trigger with duplicate inputs.
 - **Verified:** 2026-04-20
 
+### `RECENT_RING_SIZE` and `EXCLUSION_CAP` are independent by design
+- **Location:** `src/state.ts:1`, `src/words.ts:421`
+- **Pattern:** Two constants with the same value (3) in separate modules with no cross-reference.
+- **Why it's correct:** `getNextWord` uses `Math.min(EXCLUSION_CAP, maxExclude, recent.length)` -- mismatches in either direction degrade gracefully. Ring size controls memory (how many to track), exclusion cap controls policy (how many to skip). They serve different purposes and neither constrains the other. Equal today by coincidence of a reasonable default, not by invariant.
+- **Verified:** 2026-04-20
+
 ## Library Patterns
 
 ### Optional chaining on `client.user` follows library convention
@@ -33,6 +39,22 @@ reads this file and skips matching patterns in future audits.
 - **Location:** `src/discord-client.ts:105-109`
 - **Pattern:** `clearPresence()` returns `void` and uses optional chaining `c.user?.clearActivity()` without reporting whether the clear succeeded.
 - **Why it's correct:** All call sites in `extension.ts` that invoke `clearPresence` are reachable only after the library's "ready" event fires, at which point `client.user` is already populated. The `@xhayper/discord-rpc` library sets `user` from the DISPATCH/READY message synchronously before emitting "connected", and `login()` without scopes emits "ready" immediately after. There is no production code path where `clearPresence` runs with `isConnected=true` but `user=undefined`. The asymmetry with `pushPresence` (which returns `boolean`) is a style choice, not a bug. If this is ever revisited, it should be treated as a LOW-priority defensive hardening, not a HIGH-severity issue.
+- **Verified:** 2026-04-20
+
+## Configuration
+
+### `CUSTOM_WORDS_MAX = 500` silent truncation is intentional defensive ceiling
+- **Location:** `src/config.ts:33`
+- **Pattern:** `sanitizeCustomWords` silently stops adding entries after 500 with no user diagnostic.
+- **Why it's correct:** This is a sanity bound to prevent memory/performance issues from pathological config, not a user-facing feature constraint. VS Code extensions routinely apply internal defensive limits without diagnostics. No user will manually enter 500+ words into a settings.json array. Per-item validation (type, length) is enforced via `package.json` schema.
+- **Verified:** 2026-04-20
+
+## Test Infrastructure
+
+### `mockDebugSessionCounter` monotonic increment is intentional
+- **Location:** `test/mocks/vscode.ts:66`
+- **Pattern:** Counter increments across test cases and is not reset by `__resetEvents()`.
+- **Why it's correct:** The counter generates unique session IDs. No test asserts on numeric ID values -- they capture the returned ID by reference. Monotonic increment guarantees uniqueness across tests, which is the desired property. Resetting would risk collisions.
 - **Verified:** 2026-04-20
 
 ## Naming / Comments
