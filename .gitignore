@@ -6,6 +6,7 @@ Thumbs.db
 *.swp
 .env
 CLAUDE.md
+.claude/
 assets/discord/png/
 assets/archive/
 icon-candidates/

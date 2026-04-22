@@ -29,14 +29,20 @@ reads this file and skips matching patterns in future audits.
 
 ## Library Patterns
 
+### `formatActivity` omitting unused `SetActivity` fields is intentional
+- **Location:** `src/discord-client.ts:34-74`
+- **Pattern:** Custom `formatActivity` function only formats the fields actually used by `buildPresencePayload` (`type`, `details`, `state`, `startTimestamp`, `endTimestamp`, `largeImageKey`, `smallImageKey`, `largeImageText`, `smallImageText`, `statusDisplayType`), omitting library fields like `name`, `url`, `partyId`, `buttons`, `secrets`, `supportedPlatforms`.
+- **Why it's correct:** The function exists to fix the `created_at: Date.now()` flicker bug. It handles every field that `buildPresencePayload` (src/presence.ts:198-235) can produce. The omitted fields are Discord features for game lobbies, streaming, and invites that are permanently out of scope for a coding-status presence display. The bypass is documented in the module comment (lines 16-18).
+- **Verified:** 2026-04-22
+
 ### Optional chaining on `client.user` follows library convention
-- **Location:** `src/discord-client.ts:97`, `src/discord-client.ts:107`
-- **Pattern:** `c.user?.setActivity(...)`, `c.user?.clearActivity(...)`
-- **Why it's correct:** The `@xhayper/discord-rpc` library types `user` as `ClientUser | undefined` and its own README uses `client.user?.setActivity(...)`. The optional chaining is the expected access pattern. NOTE: the *return value semantics* of `pushPresence` when `user` is undefined are a separate concern (see finding 3.1 in audit-2026-04-20.md) -- the chaining itself is not the bug.
+- **Location:** `src/discord-client.ts:146`, `src/discord-client.ts:167`
+- **Pattern:** `if (!c.user) return false` (pushPresence), `c.user?.clearActivity(...)` (clearPresence)
+- **Why it's correct:** The `@xhayper/discord-rpc` library types `user` as `ClientUser | undefined` and its own README uses `client.user?.setActivity(...)`. The optional chaining is the expected access pattern. NOTE: the *return value semantics* of `pushPresence` when `user` is undefined are a separate concern -- the chaining itself is not the bug.
 - **Verified:** 2026-04-20
 
 ### `clearPresence` void return is acceptable given library call ordering
-- **Location:** `src/discord-client.ts:105-109`
+- **Location:** `src/discord-client.ts:163-168`
 - **Pattern:** `clearPresence()` returns `void` and uses optional chaining `c.user?.clearActivity()` without reporting whether the clear succeeded.
 - **Why it's correct:** All call sites in `extension.ts` that invoke `clearPresence` are reachable only after the library's "ready" event fires, at which point `client.user` is already populated. The `@xhayper/discord-rpc` library sets `user` from the DISPATCH/READY message synchronously before emitting "connected", and `login()` without scopes emits "ready" immediately after. There is no production code path where `clearPresence` runs with `isConnected=true` but `user=undefined`. The asymmetry with `pushPresence` (which returns `boolean`) is a style choice, not a bug. If this is ever revisited, it should be treated as a LOW-priority defensive hardening, not a HIGH-severity issue.
 - **Verified:** 2026-04-20

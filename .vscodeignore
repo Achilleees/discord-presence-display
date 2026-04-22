@@ -17,5 +17,6 @@ esbuild.config.mjs
 .vscodeignore
 package-lock.json
 CLAUDE.md
+.claude/**
 *.vsix
 
