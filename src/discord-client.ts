@@ -13,6 +13,11 @@ let inFlightConnect: Promise<void> | null = null;
 // window so a disconnect() that arrived during that window (when `client` is
 // transiently null) doesn't get steamrolled by a subsequent login.
 let wantsConnection = false;
+// Stable per-connection timestamp. The library's setActivity() hardcodes
+// created_at: Date.now() on every call, making Discord treat each update
+// as a new activity — the voice-channel icon disappears and reappears.
+let sessionCreatedAt: number | undefined;
+let lastPayloadJson: string | undefined;
 
 function raceWithTimeout<T>(promise: Promise<T>, ms: number): Promise<T | undefined> {
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -24,6 +29,48 @@ function raceWithTimeout<T>(promise: Promise<T>, ms: number): Promise<T | undefi
       timer = setTimeout(() => resolve(undefined), ms);
     }),
   ]);
+}
+
+function formatActivity(activity: SetActivity): Record<string, unknown> {
+  const out: Record<string, unknown> = {
+    type: activity.type ?? 0,
+    created_at: sessionCreatedAt ?? Date.now(),
+    instance: false,
+  };
+
+  if (activity.details) out.details = activity.details;
+  if (activity.state) out.state = activity.state;
+
+  if (activity.startTimestamp !== undefined || activity.endTimestamp !== undefined) {
+    const timestamps: Record<string, number> = {};
+    if (activity.startTimestamp instanceof Date) {
+      timestamps.start = activity.startTimestamp.getTime();
+    } else if (typeof activity.startTimestamp === 'number') {
+      timestamps.start = activity.startTimestamp;
+    }
+    if (activity.endTimestamp instanceof Date) {
+      timestamps.end = activity.endTimestamp.getTime();
+    } else if (typeof activity.endTimestamp === 'number') {
+      timestamps.end = activity.endTimestamp;
+    }
+    out.timestamps = timestamps;
+  }
+
+  if (activity.largeImageKey || activity.smallImageKey ||
+      activity.largeImageText || activity.smallImageText) {
+    const assets: Record<string, string> = {};
+    if (activity.largeImageKey) assets.large_image = activity.largeImageKey;
+    if (activity.smallImageKey) assets.small_image = activity.smallImageKey;
+    if (activity.largeImageText) assets.large_text = activity.largeImageText;
+    if (activity.smallImageText) assets.small_text = activity.smallImageText;
+    out.assets = assets;
+  }
+
+  if (activity.statusDisplayType !== undefined) {
+    out.status_display_type = activity.statusDisplayType;
+  }
+
+  return out;
 }
 
 export function isReady(): boolean {
@@ -55,6 +102,8 @@ export async function connect(clientId: string, callbacks: ClientCallbacks = {})
 
     const next = new Client({ clientId });
     client = next;
+    sessionCreatedAt = Date.now();
+    lastPayloadJson = undefined;
 
     if (callbacks.onReady) next.on('ready', callbacks.onReady);
     if (callbacks.onDisconnected) next.on('disconnected', callbacks.onDisconnected);
@@ -84,6 +133,7 @@ export async function connect(clientId: string, callbacks: ClientCallbacks = {})
 
 export async function disconnect(): Promise<void> {
   wantsConnection = false;
+  lastPayloadJson = undefined;
   if (!client) return;
   const c = client;
   client = null;
@@ -95,7 +145,15 @@ export async function pushPresence(activity: SetActivity): Promise<boolean> {
   if (!c?.isConnected) return false;
   if (!c.user) return false;
   try {
-    await c.user.setActivity(activity);
+    const formatted = formatActivity(activity);
+    const json = JSON.stringify(formatted);
+    if (json === lastPayloadJson) return true;
+
+    await c.request('SET_ACTIVITY', {
+      pid: process.pid,
+      activity: formatted,
+    });
+    lastPayloadJson = json;
     return true;
   } catch {
     return false;
@@ -105,5 +163,6 @@ export async function pushPresence(activity: SetActivity): Promise<boolean> {
 export async function clearPresence(): Promise<void> {
   const c = client;
   if (!c?.isConnected) return;
+  lastPayloadJson = undefined;
   await c.user?.clearActivity().catch(() => {});
 }

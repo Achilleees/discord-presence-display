@@ -5,6 +5,7 @@ type ClientInstance = {
   login: ReturnType<typeof vi.fn>;
   destroy: ReturnType<typeof vi.fn>;
   on: ReturnType<typeof vi.fn>;
+  request: ReturnType<typeof vi.fn>;
   isConnected: boolean;
   user: { setActivity: ReturnType<typeof vi.fn>; clearActivity: ReturnType<typeof vi.fn> } | undefined;
 };
@@ -18,6 +19,7 @@ vi.mock('@xhayper/discord-rpc', () => {
       login: ReturnType<typeof vi.fn>;
       destroy: ReturnType<typeof vi.fn>;
       on: ReturnType<typeof vi.fn>;
+      request: ReturnType<typeof vi.fn>;
       isConnected = false;
       user: ClientInstance['user'];
       constructor(opts: { clientId: string }) {
@@ -29,6 +31,13 @@ vi.mock('@xhayper/discord-rpc', () => {
           setActivity: vi.fn().mockResolvedValue(undefined),
           clearActivity: vi.fn().mockResolvedValue(undefined),
         };
+        const self = this;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        this.request = vi.fn(async (cmd: string, args?: any) => {
+          if (cmd === 'SET_ACTIVITY' && args?.activity) {
+            return self.user?.setActivity(args.activity);
+          }
+        });
         instances.push(this as unknown as ClientInstance);
       }
     },
