@@ -364,12 +364,12 @@ const RARITY_MASS: Record<Rarity, number> = {
 
 const TIME_BIAS = 3;
 
-export interface WeightedWord {
+interface WeightedWord {
   readonly word: string;
   readonly weight: number;
 }
 
-export interface PoolConfig {
+interface PoolConfig {
   readonly wordRarity: boolean;
   readonly timeBasedPools: boolean;
   readonly customWords: readonly string[];

@@ -137,7 +137,23 @@ export async function disconnect(): Promise<void> {
   if (!client) return;
   const c = client;
   client = null;
-  await c.destroy().catch(() => {});
+  // Publish the destroy promise through inFlightConnect so a subsequent
+  // connect() chains off it rather than racing the old transport's
+  // shutdown. Without this, rapid disable→enable toggles can create a new
+  // Client + login() while the previous client's IPC pipe is still closing.
+  // Call c.destroy() synchronously — the connect-side barrier only needs
+  // the resulting promise, not a deferred chain.
+  const destroying = c.destroy().catch(() => {});
+  const prior = inFlightConnect;
+  const run: Promise<void> = prior
+    ? prior.then(() => destroying, () => destroying)
+    : destroying;
+  inFlightConnect = run;
+  try {
+    await run;
+  } finally {
+    if (inFlightConnect === run) inFlightConnect = null;
+  }
 }
 
 export async function pushPresence(activity: SetActivity): Promise<boolean> {
