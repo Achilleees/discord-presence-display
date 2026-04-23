@@ -27,6 +27,14 @@ reads this file and skips matching patterns in future audits.
 - **Why it's correct:** `getNextWord` uses `Math.min(EXCLUSION_CAP, maxExclude, recent.length)` -- mismatches in either direction degrade gracefully. Ring size controls memory (how many to track), exclusion cap controls policy (how many to skip). They serve different purposes and neither constrains the other. Equal today by coincidence of a reasonable default, not by invariant.
 - **Verified:** 2026-04-20
 
+## Concurrency
+
+### Instance-lock heartbeat TOCTOU is acceptable for best-effort locking
+- **Location:** `src/instance-lock.ts:46-51`
+- **Pattern:** Heartbeat reads lock PID, then writes updated timestamp -- no atomic check-and-write.
+- **Why it's correct:** The read and write are adjacent synchronous calls in a single event-loop tick (microsecond gap). The competing `tryAcquire()` would need to complete 4+ filesystem syscalls in that window from a separate process. The lock is a best-effort single-instance mechanism, not a distributed consensus protocol. The worst case (brief presence flickering) is cosmetic and self-correcting on the next heartbeat. The audit report's own notes acknowledged this as acceptable.
+- **Verified:** 2026-04-23
+
 ## Library Patterns
 
 ### `formatActivity` omitting unused `SetActivity` fields is intentional
@@ -70,3 +78,25 @@ reads this file and skips matching patterns in future audits.
 - **Pattern:** README uses a simplified 1-4 numbering (debug=1, diff=2, terminal=3, working=4). Internal code and tests use a fuller scheme (rule 2=debug, rule 3=diff, rule 4=terminal, rule 5=undefined-language, rule 6=working) that includes implementation-only steps not relevant to end users.
 - **Why it's correct:** The README numbering is a user-facing simplification that intentionally omits internal-only rules (rule 1: showLanguage=false gate, rule 5: undefined language fallback). The `state.ts` comments and `presence.test.ts` test names use the same internal numbering and are consistent with each other. Two numbering schemes (user-facing vs internal) is normal for documented software.
 - **Verified:** 2026-04-20
+
+## Language / Display
+
+### `LANG_DISPLAY` raw-key-first lookup in `getLanguageDisplayName` is intentional
+- **Location:** `src/presence.ts:159-166`, `src/presence.ts:89-146` (LANG_DISPLAY), `src/presence.ts:69-82` (LANG_ID_OVERRIDES)
+- **Pattern:** `getLanguageDisplayName` checks `LANG_DISPLAY[languageId]` before normalizing via `LANG_ID_OVERRIDES`. Dialect entries like `less` and `scss` return their own display names ("Less", "SCSS") rather than their parent icon group's name ("CSS").
+- **Why it's correct:** This is the entire point of the two-step lookup. LANG_ID_OVERRIDES routes icons (less -> css icon), while LANG_DISPLAY preserves correct display names. The comment block above LANG_DISPLAY (lines 84-88) explicitly documents this pattern. A refactor to normalize-first would change the function's semantics, not expose a latent bug.
+- **Verified:** 2026-04-23
+
+## Discord API
+
+### Discord silently truncates long `state`/`details` fields -- extension does not need to
+- **Location:** `src/presence.ts:191-193` (workspace name append), `src/presence.ts:209` (details field)
+- **Pattern:** `buildStateLine` appends workspace name without a length check. The `state` field sent to Discord can exceed 128 characters with long folder names.
+- **Why it's correct:** Discord's Rich Presence API silently truncates overlong fields. The extension delegates display-length enforcement to Discord rather than hardcoding assumptions about field limits (which have changed historically). The `showWorkspace` setting defaults to `false` (README: "Off by default for privacy"), so users who enable it are opting into user-controlled workspace names. Graceful truncation by Discord is the expected degradation path.
+- **Verified:** 2026-04-23
+
+### Case-sensitive custom word dedup is documented and intentional
+- **Location:** `src/words.ts:399-401`, `README.md:47`
+- **Pattern:** `buildPool` uses `builtIn.has(word)` (case-sensitive) to dedup custom words against built-in WORDS.
+- **Why it's correct:** README.md line 47 explicitly documents this: `Case-sensitive -- "working" and built-in "Working" both appear.` This is a deliberate feature allowing users to add lowercase variants of built-in words. All built-in words are capitalized; a lowercase custom word is a distinct user choice.
+- **Verified:** 2026-04-23

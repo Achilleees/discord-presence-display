@@ -44,7 +44,7 @@ All settings live under the `claudeSpinner.*` namespace (internal ID, kept stabl
 | `claudeSpinner.enabled` | boolean | `true` | Master switch. Off → disconnect from Discord. |
 | `claudeSpinner.cycleSpeed` | number (5–120) | `15` | Seconds between word rotations. 5s minimum respects Discord's rate limit. |
 | `claudeSpinner.cycleWords` | boolean | `true` | Rotate the word. Off → pick one word on activation and keep it. |
-| `claudeSpinner.customWords` | string[] | `[]` | Extra words mixed into the rotation. Each entry 1–128 characters. Case-sensitive — `"working"` and built-in `"Working"` both appear. |
+| `claudeSpinner.customWords` | string[] | `[]` | Extra words mixed into the rotation. Each entry 1–125 characters. Case-sensitive — `"working"` and built-in `"Working"` both appear. |
 | `claudeSpinner.showLanguage` | boolean | `true` | Show the `Working in X` line beneath the cycling word. |
 | `claudeSpinner.showWorkspace` | boolean | `false` | Append the workspace folder name to the status line. Off by default for privacy. |
 | `claudeSpinner.showElapsedTime` | boolean | `true` | Show the session elapsed time on your profile. |
