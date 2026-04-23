@@ -44,13 +44,13 @@ reads this file and skips matching patterns in future audits.
 - **Verified:** 2026-04-22
 
 ### Optional chaining on `client.user` follows library convention
-- **Location:** `src/discord-client.ts:146`, `src/discord-client.ts:167`
+- **Location:** `src/discord-client.ts:162`, `src/discord-client.ts:183`
 - **Pattern:** `if (!c.user) return false` (pushPresence), `c.user?.clearActivity(...)` (clearPresence)
 - **Why it's correct:** The `@xhayper/discord-rpc` library types `user` as `ClientUser | undefined` and its own README uses `client.user?.setActivity(...)`. The optional chaining is the expected access pattern. NOTE: the *return value semantics* of `pushPresence` when `user` is undefined are a separate concern -- the chaining itself is not the bug.
 - **Verified:** 2026-04-20
 
 ### `clearPresence` void return is acceptable given library call ordering
-- **Location:** `src/discord-client.ts:163-168`
+- **Location:** `src/discord-client.ts:179-184`
 - **Pattern:** `clearPresence()` returns `void` and uses optional chaining `c.user?.clearActivity()` without reporting whether the clear succeeded.
 - **Why it's correct:** All call sites in `extension.ts` that invoke `clearPresence` are reachable only after the library's "ready" event fires, at which point `client.user` is already populated. The `@xhayper/discord-rpc` library sets `user` from the DISPATCH/READY message synchronously before emitting "connected", and `login()` without scopes emits "ready" immediately after. There is no production code path where `clearPresence` runs with `isConnected=true` but `user=undefined`. The asymmetry with `pushPresence` (which returns `boolean`) is a style choice, not a bug. If this is ever revisited, it should be treated as a LOW-priority defensive hardening, not a HIGH-severity issue.
 - **Verified:** 2026-04-20
@@ -74,10 +74,10 @@ reads this file and skips matching patterns in future audits.
 ## Naming / Comments
 
 ### Smart-state rule numbering differs between README and internal code
-- **Location:** `src/state.ts:19-21`, `test/presence.test.ts:126-181`, `README.md:58-67`
-- **Pattern:** README uses a simplified 1-4 numbering (debug=1, diff=2, terminal=3, working=4). Internal code and tests use a fuller scheme (rule 2=debug, rule 3=diff, rule 4=terminal, rule 5=undefined-language, rule 6=working) that includes implementation-only steps not relevant to end users.
-- **Why it's correct:** The README numbering is a user-facing simplification that intentionally omits internal-only rules (rule 1: showLanguage=false gate, rule 5: undefined language fallback). The `state.ts` comments and `presence.test.ts` test names use the same internal numbering and are consistent with each other. Two numbering schemes (user-facing vs internal) is normal for documented software.
-- **Verified:** 2026-04-20
+- **Location:** `test/presence.test.ts:126-181`, `README.md:58-67`
+- **Pattern:** README uses a simplified 1-4 numbering (debug=1, diff=2, terminal=3, working=4). Test names use a fuller scheme (rule 2=debug, rule 3=diff, rule 4=terminal, rule 5=undefined-language, rule 6=working) that includes implementation-only steps not relevant to end users.
+- **Why it's correct:** The README numbering is a user-facing simplification that intentionally omits internal-only rules (rule 1: showLanguage=false gate, rule 5: undefined language fallback). The `presence.test.ts` test names use the internal numbering consistently. Two numbering schemes (user-facing vs internal) is normal for documented software. Note: `state.ts:19-21` formerly referenced "rule 6" but was updated to use a descriptive reference ("Working-in fallthrough") in audit 2026-04-23.
+- **Verified:** 2026-04-23
 
 ## Language / Display
 
