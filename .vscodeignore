@@ -3,6 +3,7 @@ node_modules/**
 src/**
 test/**
 docs/**
+ROADMAP.md
 dist/**/*.map
 dist/**/*.d.ts
 assets/icon-source.svg
