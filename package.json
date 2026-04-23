@@ -86,10 +86,10 @@
           "items": {
             "type": "string",
             "minLength": 1,
-            "maxLength": 128
+            "maxLength": 125
           },
           "default": [],
-          "description": "Extra words to mix into the spinner. Each entry 1–128 characters."
+          "description": "Extra words to mix into the spinner. Each entry 1–125 characters."
         },
         "claudeSpinner.showLanguage": {
           "type": "boolean",

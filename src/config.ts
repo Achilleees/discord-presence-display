@@ -45,7 +45,7 @@ function sanitizeCustomWords(raw: unknown): string[] {
     if (out.length >= CUSTOM_WORDS_MAX) break;
     if (typeof entry !== 'string') continue;
     const trimmed = entry.trim();
-    if (trimmed.length === 0 || trimmed.length > 128) continue;
+    if (trimmed.length === 0 || trimmed.length > 125) continue;
     // Reject newlines, tabs, and other control chars that would render
     // weirdly in Discord's details field.
     if (CONTROL_CHAR.test(trimmed)) continue;
