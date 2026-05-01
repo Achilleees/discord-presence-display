@@ -2,7 +2,7 @@
 node_modules/**
 src/**
 test/**
-docs/**
+.docs/**
 ROADMAP.md
 dist/**/*.map
 dist/**/*.d.ts
@@ -19,5 +19,8 @@ esbuild.config.mjs
 package-lock.json
 CLAUDE.md
 .claude/**
+.ideation/**
+.archive/**
+release.sh
 *.vsix
 

@@ -9,3 +9,12 @@ CLAUDE.md
 assets/archive/
 assets/discord/png/
 submission/
+
+# Ephemeral audit/pipeline outputs (deleted after pipeline runs)
+.docs/audit/audit-*.md
+.docs/audit/verified-*.md
+.docs/audit/janitor-*.md
+.docs/audit/janitor-verified-*.md
+.docs/test/
+.ideation/
+.archive/
