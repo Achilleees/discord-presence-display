@@ -133,8 +133,6 @@ reads this file and skips matching patterns in future audits.
 - **Why it's correct:** ROADMAP.md explicitly tracks this: "Issue template for bug reports and language requests." The repo has a single maintainer. Inconsistent issue formatting is a non-problem at this scale. Restating a roadmap item as an audit finding adds no information.
 - **Verified:** 2026-05-01
 
-### Committed `.vsix` binary is an intentional distribution choice
-- **Location:** `repo root — coding-status-for-discord-1.0.0.vsix`
-- **Pattern:** Scanner flags the tracked binary as repo bloat and recommends GitHub Releases.
-- **Why it's correct:** Commit 8f7fde3 documents the rationale: "Gmail blocks .vsix attachments -- hosting in repo instead." This was a deliberate workaround for a distribution constraint. At 354 KB and a single version, the bloat is negligible. The `.vscodeignore` correctly excludes `*.vsix` from the packaged extension. If future versions accumulate, revisit -- but a single intentional binary does not warrant cleanup.
-- **Verified:** 2026-05-01
+### ~~Committed `.vsix` binary~~ (RESOLVED)
+- **Resolution:** Moved to GitHub Releases. `*.vsix` now gitignored, `release.sh` creates GitHub releases with attached VSIX automatically.
+- **Resolved:** 2026-05-01

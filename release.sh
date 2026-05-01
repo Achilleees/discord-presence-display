@@ -21,6 +21,9 @@ case "$BUMP" in
   major) NEXT="$((MAJ + 1)).0.0" ;;
 esac
 
+TAG="v${NEXT}"
+VSIX="coding-status-for-discord-${NEXT}.vsix"
+
 echo "==> $CURRENT -> $NEXT ($BUMP)"
 
 if [[ -n "$(git status --porcelain)" ]]; then
@@ -42,22 +45,30 @@ npm run build
 
 echo "==> package vsix"
 npx vsce package --no-update-package-json
-VSIX="coding-status-for-discord-${NEXT}.vsix"
 
 git add package.json
 git commit -m "$(cat <<EOF
-chore: release v${NEXT}
+chore: release ${TAG}
 
 Co-Authored-By: Bef <entity@achilles-pc>
 EOF
 )"
 
-git tag "v${NEXT}"
+git tag "$TAG"
+
+echo "==> push"
+git push
+git push --tags
+
+echo "==> create github release"
+gh release create "$TAG" "$VSIX" \
+  --title "$TAG" \
+  --generate-notes
+
+rm -f "$VSIX"
 
 echo ""
-echo "Done. v${NEXT} tagged."
-echo "  VSIX:  $VSIX"
+echo "Done. ${TAG} released."
+echo "  https://github.com/Achilleees/discord-presence-display/releases/tag/${TAG}"
 echo ""
-echo "Next:"
-echo "  1. Update CHANGELOG.md"
-echo "  2. git push && git push --tags"
+echo "Next: update CHANGELOG.md"
