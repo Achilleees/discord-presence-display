@@ -46,7 +46,7 @@ npm run build
 echo "==> package vsix"
 npx vsce package --no-update-package-json
 
-git add package.json
+git add package.json package-lock.json
 git commit -m "$(cat <<EOF
 chore: release ${TAG}
 
