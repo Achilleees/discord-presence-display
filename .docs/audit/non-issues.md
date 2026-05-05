@@ -148,3 +148,15 @@ reads this file and skips matching patterns in future audits.
 - **Pattern:** Scanner may flag a `.vsix` file present in the repo root. It is correctly gitignored via `*.vsix` (line 12 of `.gitignore`).
 - **Why it's correct:** `release.sh` builds a VSIX via `vsce package`, attaches it to the GitHub Release via `gh release create`, then deletes it via `rm -f "$VSIX"` on line 68. If the script is interrupted or the VSIX is rebuilt locally, the file may remain. `git status --ignored` confirms the file is properly ignored — it's a build artifact, not committed content. Safe to delete manually whenever it shows up.
 - **Verified:** 2026-05-05
+
+### Disable→enable corrupt-lock-file race during the disabled-period gap
+- **Location:** `src/instance-lock.ts — acquireOrWatch() + release() in handleConfigChange.shutdown`
+- **Pattern:** Auditor flagged that toggling `claudeSpinner.enabled` off then on rapidly could hit a corrupt-lock-file race window between `release()` and the next `acquireOrWatch()`.
+- **Why it's correct:** The auditor self-downgraded this finding to LOW with "None required" and noted "this is theoretical." The race window is microseconds wide, and any failure outcome is benign (presence falls back to secondary mode and recovers on the next 30s lock check). Both verifiers (Opus 4.6 and 4.7) classified this as FALSE-POSITIVE in the deep audit.
+- **Verified:** 2026-05-05
+
+### `weightedPick` floating-point cumulative drift across very heavy weights
+- **Location:** `src/words.ts:437-449 — weightedPick()`
+- **Pattern:** Auditor noted that summing many large weights cumulatively could cause `pick > total` due to FP rounding, picking the "wrong" word.
+- **Why it's correct:** The auditor self-rejected this with "Already handled by the trailing fallback. No action needed. Drop-candidate." The function's last-resort fallback returns the final element when no cumulative bucket matches — making any FP drift cosmetic at most. Both verifiers (Opus 4.6 and 4.7) classified this as FALSE-POSITIVE in the deep audit.
+- **Verified:** 2026-05-05
