@@ -10,7 +10,6 @@ assets/icon-source.svg
 assets/discord/**
 assets/screenshots/**
 assets/archive/**
-icon-candidates/**
 tsconfig.json
 vitest.config.ts
 esbuild.config.mjs

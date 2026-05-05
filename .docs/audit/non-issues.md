@@ -133,6 +133,18 @@ reads this file and skips matching patterns in future audits.
 - **Why it's correct:** ROADMAP.md explicitly tracks this: "Issue template for bug reports and language requests." The repo has a single maintainer. Inconsistent issue formatting is a non-problem at this scale. Restating a roadmap item as an audit finding adds no information.
 - **Verified:** 2026-05-01
 
+### `.gitignore` line-comment grouping is stylistic polish, not a hygiene issue
+- **Location:** `.gitignore — assets/discord/png/, submission/ entries (lines 10-11)`
+- **Pattern:** Scanner suggests adding an inline comment to `.gitignore` explaining why `assets/discord/png/` (convert.sh output) and `submission/` (developer-only marketplace correspondence) are ignored.
+- **Why it's not a hygiene issue:** The `.gitignore` entries are correct and harmless. Intent is preserved in `.docs/audit/non-issues.md` (the `convert.sh` non-issue is registered) and the README/script headers, which is the canonical place for project context. Inline comments in `.gitignore` files are stylistic preference, not a hygiene defect. This pattern is "polish, not load-bearing" and should be treated as a SUGGESTION rather than a CLEAN-UP finding.
+- **Verified:** 2026-05-05
+
 ### ~~Committed `.vsix` binary~~ (RESOLVED)
 - **Resolution:** Moved to GitHub Releases. `*.vsix` now gitignored, `release.sh` creates GitHub releases with attached VSIX automatically.
 - **Resolved:** 2026-05-01
+
+### Untracked `coding-status-for-discord-*.vsix` in repo root is a release artifact, not a hygiene defect
+- **Location:** Repo root — `coding-status-for-discord-${version}.vsix`
+- **Pattern:** Scanner may flag a `.vsix` file present in the repo root. It is correctly gitignored via `*.vsix` (line 12 of `.gitignore`).
+- **Why it's correct:** `release.sh` builds a VSIX via `vsce package`, attaches it to the GitHub Release via `gh release create`, then deletes it via `rm -f "$VSIX"` on line 68. If the script is interrupted or the VSIX is rebuilt locally, the file may remain. `git status --ignored` confirms the file is properly ignored — it's a build artifact, not committed content. Safe to delete manually whenever it shows up.
+- **Verified:** 2026-05-05
