@@ -219,7 +219,11 @@ export async function pushPresence(activity: SetActivity): Promise<boolean> {
   try {
     const result = await raceWithDeadline(requested, IPC_DEADLINE_MS);
     if (result === TIMED_OUT) {
-      if (lastPayloadJson === json) lastPayloadJson = previous;
+      // Force the next push to re-send unconditionally — we don't know
+      // whether Discord received the payload after the deadline. Reverting
+      // to `previous` would let a future push that happens to equal
+      // `previous` get dedup-skipped, leaving Discord stuck on `json`.
+      if (lastPayloadJson === json) lastPayloadJson = undefined;
       return false;
     }
     return true;
@@ -240,8 +244,17 @@ export async function clearPresence(): Promise<void> {
   // IPC must not freeze the caller.
   const clearing = c.user?.clearActivity();
   if (clearing) {
+    // Pre-attach a swallow to the original promise for late rejections
+    // arriving after the race resolves. raceWithDeadline wraps `clearing`
+    // in `.finally()`, which propagates rejection — so the await itself
+    // must also be guarded, or `void clearPresence()` callers leak an
+    // unhandled rejection that violates the "Discord stays silent" invariant.
     clearing.catch(() => {});
-    await raceWithDeadline(clearing, IPC_DEADLINE_MS);
+    try {
+      await raceWithDeadline(clearing, IPC_DEADLINE_MS);
+    } catch {
+      // Discord-side IPC failure; cache reset below still applies.
+    }
   }
   lastPayloadJson = undefined;
 }

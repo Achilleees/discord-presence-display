@@ -53,7 +53,9 @@ function sanitizeCustomWords(raw: unknown): string[] {
     // Strip ZWJ before testing — it's a legitimate emoji-sequence glue
     // character that \p{Cf} would otherwise reject. Any remaining Cc/Cf
     // is a real control/format character to filter.
-    if (CONTROL_CHAR.test(trimmed.split(ZWJ).join(''))) continue;
+    const stripped = trimmed.split(ZWJ).join('');
+    if (stripped.length === 0) continue;  // all ZWJ → no real content
+    if (CONTROL_CHAR.test(stripped)) continue;
     if (seen.has(trimmed)) continue;
     seen.add(trimmed);
     out.push(trimmed);

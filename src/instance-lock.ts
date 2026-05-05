@@ -56,12 +56,14 @@ function writeLockData(): void {
 
 function sleepSync(ms: number): void {
   // Tiny synchronous backoff for FS retry — node's fs APIs here are sync,
-  // so a non-async sleep keeps this module's contract intact. Atomics.wait
-  // on a SharedArrayBuffer would be cleaner but isn't worth the surface
-  // area for a 100ms FS race.
+  // so a non-async sleep keeps tryAcquire's contract intact. Blocks the
+  // event loop for up to (RECREATE_RETRIES - 1) * RECREATE_BACKOFF_MS
+  // (~200ms) per failed acquire, including the polling secondary path —
+  // but only when the FS race is actually contested, not on every poll.
+  // Atomics.wait would be cleaner but isn't worth the surface area.
   const end = Date.now() + ms;
   while (Date.now() < end) {
-    // Spin. No microtask pumping — this runs at module activation only.
+    // Spin.
   }
 }
 
@@ -95,8 +97,10 @@ function startHeartbeat(): void {
         // raced our heartbeat). The heartbeat exists to refresh our
         // ownership timestamp; with no ownership to refresh, ticking
         // is wasted work. Stop quietly — instance-lock is best-effort
-        // and the loser's presence has already gone silent at the
-        // protocol layer; further heartbeat work won't undo that.
+        // and cosmetic. Note: the losing primary may continue pushing
+        // presence (Discord IPC accepts multiple connections from
+        // different VS Code window pids); the lock won't fix that.
+        // Resolution requires the user to toggle enabled or restart.
         stopHeartbeat();
       }
     } catch {}

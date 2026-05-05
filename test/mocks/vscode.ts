@@ -32,6 +32,11 @@ export function __resetCommands(): void {
 
 export const workspace = {
   workspaceFolders: undefined as readonly { name: string; uri: { fsPath: string } }[] | undefined,
+  getWorkspaceFolder(uri: { fsPath: string }): { name: string; uri: { fsPath: string } } | undefined {
+    const folders = workspace.workspaceFolders;
+    if (!folders) return undefined;
+    return folders.find((f) => uri.fsPath.startsWith(f.uri.fsPath));
+  },
   getConfiguration(section?: string): {
     get: <T>(key: string, defaultValue?: T) => T;
   } {
