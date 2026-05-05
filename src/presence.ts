@@ -3,14 +3,17 @@ import type { Config } from './config';
 import type { State } from './state';
 import { buildPool, getNextWord } from './words';
 
-export function pickCandidateWord(state: State, config: Config, nowMs: number): string {
+export function pickCandidateWord(state: State, config: Config, elapsedMs: number): string {
   if (!config.cycleWords && state.pinnedWord) return state.pinnedWord;
 
+  // elapsedMs is supplied by the caller (must be monotonic-derived to
+  // avoid wall-clock jumps reclassifying time tiers mid-session — see
+  // state.startMonotonicMs and src/extension.ts).
   const pool = buildPool({
     wordRarity: config.wordRarity,
     timeBasedPools: config.timeBasedPools,
     customWords: config.customWords,
-    elapsedMs: nowMs - state.startTimestamp.getTime(),
+    elapsedMs,
   });
   return getNextWord(pool, state.recentWords.values());
 }

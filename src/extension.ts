@@ -34,6 +34,15 @@ const activeDebugSessions = new Set<string>();
 function getWorkspaceName(): string | undefined {
   const folders = vscode.workspace.workspaceFolders;
   if (!folders || folders.length === 0) return undefined;
+  // In multi-root workspaces, prefer the folder containing the active
+  // editor — folders[0] would otherwise leak the wrong folder name when
+  // the user is editing a file outside the first folder. Privacy-relevant:
+  // the leaked name should be the one the user is actually working in.
+  const activeUri = vscode.window.activeTextEditor?.document.uri;
+  if (activeUri) {
+    const owning = vscode.workspace.getWorkspaceFolder(activeUri);
+    if (owning) return owning.name;
+  }
   return folders[0].name;
 }
 
@@ -52,13 +61,15 @@ function computeFocusContext(): FocusContext {
   // terminal and a terminal is still present, prefer 'terminal' over a
   // visually-active diff tab.
   if (lastInteractedSource === 'terminal' && vscode.window.activeTerminal) return 'terminal';
-  if (isDiffTab(vscode.window.tabGroups?.activeTabGroup?.activeTab)) return 'diff';
+  if (isDiffTab(vscode.window.tabGroups.activeTabGroup?.activeTab)) return 'diff';
   if (vscode.window.activeTextEditor) return 'editor';
   if (vscode.window.activeTerminal) return 'terminal';
   return 'none';
 }
 
-async function pushImmediate(opts: { bypassIdleSilence?: boolean } = {}): Promise<void> {
+async function pushImmediate(
+  opts: { bypassIdleSilence?: boolean; useLastWord?: boolean } = {},
+): Promise<void> {
   if (!state || !config) return;
   if (!discord.isReady()) return;
   // Serialize pushes so a slow setActivity can't race with a subsequent
@@ -96,7 +107,16 @@ async function pushImmediate(opts: { bypassIdleSilence?: boolean } = {}): Promis
     // terminal, so this doesn't drop the language during terminal focus.
     state.currentLanguage = vscode.window.activeTextEditor?.document.languageId;
 
-    const word = pickCandidateWord(state, config, Date.now());
+    // useLastWord pins the displayed word across transitions where the
+    // README promises continuity (idle→pause). Falls back to a fresh
+    // pick when nothing has ever been delivered yet. Elapsed time uses
+    // the monotonic baseline so NTP corrections / sleep-resume cannot
+    // flip time-tier classification mid-session (would otherwise let
+    // elapsedMs go negative and reclassify a deep-session as warming).
+    const elapsedMs = performance.now() - state.startMonotonicMs;
+    const word = opts.useLastWord && state.lastWord
+      ? state.lastWord
+      : pickCandidateWord(state, config, elapsedMs);
     const payload = buildPresencePayload(state, config, word);
     if (payload === null) {
       await discord.clearPresence();
@@ -114,12 +134,20 @@ async function pushImmediate(opts: { bypassIdleSilence?: boolean } = {}): Promis
     // what the user actually saw.
     if (state.isIdle && config.idleBehavior === 'clear') return;
 
+    // If togglePaused fired during the IPC roundtrip, presence is now
+    // cleared — same logic as the idle-clear guard above. In pinned mode
+    // we'd otherwise resurrect a stale pinnedWord on the next unpause;
+    // in cycling mode the picker would advance against a word Discord
+    // never showed.
+    if (state.paused) return;
+
     // For cycling: commit to the ring regardless of push success so the
     // anti-duplicate picker advances. For pinned mode: only commit if
     // pushPresence reported success — a transient IPC write failure
     // shouldn't pin a word Discord never displayed.
     if (config.cycleWords) state.recentWords.add(word);
     else if (delivered) state.pinnedWord = word;
+    if (delivered) state.lastWord = word;
   } finally {
     pushing = false;
     if (pushDirty) {
@@ -305,6 +333,10 @@ function togglePaused(): void {
     // Drop any queued event-debounce so a stale push doesn't fire a
     // redundant clearActivity just after the explicit pause.
     clearPushDebounce();
+    // Mirror deactivate(): an in-flight push completing after pause must
+    // not re-arm a stale debounced retry through the finally block.
+    pushDirty = false;
+    pushDirtyBypass = false;
     void discord.clearPresence();
   } else {
     // Explicit resume overrides any lingering idle state so presence
@@ -368,8 +400,11 @@ function applyIdleBehavior(): void {
       // Push once so something is visible for the "keep last presence
       // visible" contract. When transitioning from 'clear' to 'pause'
       // mid-idle this restores presence; in other transitions it's
-      // idempotent.
-      void pushImmediate({ bypassIdleSilence: true });
+      // idempotent. Use the previously delivered word in cycling mode
+      // so the displayed word doesn't change at the moment idle engages
+      // — pickCandidateWord deliberately excludes the recent ring and
+      // would force a fresh word, contradicting the README contract.
+      void pushImmediate({ bypassIdleSilence: true, useLastWord: true });
       break;
     case 'clear':
       stopCycle();
@@ -449,7 +484,18 @@ export function activate(context: vscode.ExtensionContext): void {
   config = readConfig();
   const initialLanguage = vscode.window.activeTextEditor?.document.languageId;
   state = createState(new Date(), initialLanguage, getWorkspaceName());
-  lastInteractedSource = 'editor';
+  // Seed lastInteractedSource from current focus rather than hardcoding
+  // 'editor': if VS Code activates with a terminal focused and no editor
+  // open, the first push would otherwise read "Working in {language}"
+  // instead of "In the terminal" until the next focus event. activeTerminal
+  // is defined whenever any terminal exists; we only prefer it when no
+  // editor is currently active (editor is sticky during terminal focus,
+  // so activeTextEditor=undefined is the strong signal).
+  if (!vscode.window.activeTextEditor && vscode.window.activeTerminal) {
+    lastInteractedSource = 'terminal';
+  } else {
+    lastInteractedSource = 'editor';
+  }
   state.focusContext = computeFocusContext();
   // Seed the debug-session set from the currently-active session if any.
   activeDebugSessions.clear();
@@ -510,6 +556,18 @@ export function activate(context: vscode.ExtensionContext): void {
       if (!state) return;
       if (session?.id) activeDebugSessions.delete(session.id);
       if (activeDebugSessions.size === 0) {
+        // Compound launches surface siblings the extension never saw
+        // start (when activation lands after launch). Re-poll
+        // activeDebugSession — if VS Code reports a session whose id is
+        // NOT the one terminating, that's a real sibling and we keep
+        // debugActive=true. Same id means VS Code just hasn't nulled
+        // activeDebugSession yet (timing quirk), and we should still
+        // flip debugActive=false.
+        const survivor = vscode.debug.activeDebugSession;
+        if (survivor?.id && survivor.id !== session?.id) {
+          activeDebugSessions.add(survivor.id);
+          return;
+        }
         state.debugActive = false;
         if (config?.enabled) schedulePush();
       }

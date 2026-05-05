@@ -31,8 +31,15 @@ function toBool(raw: unknown, def: boolean): boolean {
 }
 
 const CUSTOM_WORDS_MAX = 500;
+// Match Cc (control) and Cf (format) characters that should be filtered
+// from custom words, but allow U+200D (ZWJ) \u2014 it's the connective glue
+// in profession emoji (woman technologist), family emoji, and gendered
+// emoji sequences. Filtering ZWJ silently breaks legitimate emoji custom
+// words with no diagnostic. eslint-disable for the bracketed control
+// class.
 // eslint-disable-next-line no-control-regex
 const CONTROL_CHAR = /[\p{Cc}\p{Cf}\u2028\u2029\u202f]/u;
+const ZWJ = '\u200d';
 
 function sanitizeCustomWords(raw: unknown): string[] {
   if (!Array.isArray(raw)) return [];
@@ -43,7 +50,10 @@ function sanitizeCustomWords(raw: unknown): string[] {
     if (typeof entry !== 'string') continue;
     const trimmed = entry.trim();
     if (trimmed.length === 0 || trimmed.length > 125) continue;
-    if (CONTROL_CHAR.test(trimmed)) continue;
+    // Strip ZWJ before testing — it's a legitimate emoji-sequence glue
+    // character that \p{Cf} would otherwise reject. Any remaining Cc/Cf
+    // is a real control/format character to filter.
+    if (CONTROL_CHAR.test(trimmed.split(ZWJ).join(''))) continue;
     if (seen.has(trimmed)) continue;
     seen.add(trimmed);
     out.push(trimmed);

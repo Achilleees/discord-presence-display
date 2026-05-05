@@ -19,6 +19,9 @@ let wantsConnection = false;
 let sessionCreatedAt: number | undefined;
 let lastPayloadJson: string | undefined;
 
+const TIMED_OUT = Symbol('timed-out');
+type Timeout = typeof TIMED_OUT;
+
 function raceWithTimeout<T>(promise: Promise<T>, ms: number): Promise<T | undefined> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   return Promise.race<T | undefined>([
@@ -30,6 +33,25 @@ function raceWithTimeout<T>(promise: Promise<T>, ms: number): Promise<T | undefi
     }),
   ]);
 }
+
+// Variant that distinguishes "promise resolved with undefined" from
+// "deadline elapsed" via a sentinel. Used in pushPresence/clearPresence
+// where the IPC roundtrip can hang on suspended-laptop or paged-out
+// Discord scenarios — we must know if the call actually completed so we
+// can decide whether to revert the dedup cache.
+function raceWithDeadline<T>(promise: Promise<T>, ms: number): Promise<T | Timeout> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  return Promise.race<T | Timeout>([
+    promise.finally(() => {
+      if (timer) clearTimeout(timer);
+    }),
+    new Promise<Timeout>((resolve) => {
+      timer = setTimeout(() => resolve(TIMED_OUT), ms);
+    }),
+  ]);
+}
+
+const IPC_DEADLINE_MS = 8_000;
 
 function formatActivity(activity: SetActivity): Record<string, unknown> {
   const out: Record<string, unknown> = {
@@ -119,6 +141,18 @@ export async function connect(clientId: string, callbacks: ClientCallbacks = {})
       }
       throw err;
     }
+    // Re-check after login resolves: a disconnect() that arrived between
+    // login start and login success may not have actually torn down
+    // `next`'s IPC pipe before login completed. Even if disconnect
+    // already nulled `client`, login can still succeed against the open
+    // pipe and leave Discord with a "phantom" presence the user
+    // explicitly opted out of. Always destroy when wantsConnection is
+    // false; destroy() is safe to call twice (the lib treats it as a
+    // no-op once the transport is closed).
+    if (!wantsConnection) {
+      if (client === next) client = null;
+      await next.destroy().catch(() => {});
+    }
   })();
   inFlightConnect = run;
 
@@ -160,18 +194,37 @@ export async function pushPresence(activity: SetActivity): Promise<boolean> {
   const c = client;
   if (!c?.isConnected) return false;
   if (!c.user) return false;
+  const formatted = formatActivity(activity);
+  const json = JSON.stringify(formatted);
+  if (json === lastPayloadJson) return true;
+  // Record intent BEFORE the await so an interleaving clearPresence (which
+  // resets the cache after its own await completes) wins the race and the
+  // dedup cache can never end up holding a payload Discord just cleared.
+  // Revert on failure / timeout so the next attempt isn't silently deduped
+  // against an unsent payload.
+  const previous = lastPayloadJson;
+  lastPayloadJson = json;
+  // Bound the IPC roundtrip with a deadline. Without this, a half-broken
+  // pipe (laptop suspend, paged-out Discord) hangs the await, the
+  // pushImmediate mutex stays held, and presence freezes until VS Code
+  // reload. Asymmetric without this with connect()'s own timeout.
+  const requested = c.request('SET_ACTIVITY', {
+    pid: process.pid,
+    activity: formatted,
+  });
+  // Pre-attach a swallow handler so a late rejection arriving after the
+  // deadline already returned us doesn't trigger an unhandled rejection
+  // warning. The original promise is still consumed by raceWithDeadline.
+  requested.catch(() => {});
   try {
-    const formatted = formatActivity(activity);
-    const json = JSON.stringify(formatted);
-    if (json === lastPayloadJson) return true;
-
-    await c.request('SET_ACTIVITY', {
-      pid: process.pid,
-      activity: formatted,
-    });
-    lastPayloadJson = json;
+    const result = await raceWithDeadline(requested, IPC_DEADLINE_MS);
+    if (result === TIMED_OUT) {
+      if (lastPayloadJson === json) lastPayloadJson = previous;
+      return false;
+    }
     return true;
   } catch {
+    if (lastPayloadJson === json) lastPayloadJson = previous;
     return false;
   }
 }
@@ -179,6 +232,16 @@ export async function pushPresence(activity: SetActivity): Promise<boolean> {
 export async function clearPresence(): Promise<void> {
   const c = client;
   if (!c?.isConnected) return;
+  // Reset the cache AFTER the await so an interleaving pushPresence that
+  // set its intent before our await can't be steamrolled by a stale
+  // pre-await reset. Once Discord acknowledges the clear, the cache truly
+  // reflects "nothing on the wire".
+  // Bounded with a deadline for the same reason as pushPresence — a hung
+  // IPC must not freeze the caller.
+  const clearing = c.user?.clearActivity();
+  if (clearing) {
+    clearing.catch(() => {});
+    await raceWithDeadline(clearing, IPC_DEADLINE_MS);
+  }
   lastPayloadJson = undefined;
-  await c.user?.clearActivity().catch(() => {});
 }
