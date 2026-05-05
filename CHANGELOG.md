@@ -5,6 +5,17 @@ All notable changes to Coding Status for Discord will be documented in this file
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.1] - 2026-05-01
+
+### Changed
+
+- **VSIX distribution moved to GitHub Releases** — the packaged extension is no longer tracked in the repo. `release.sh` now uploads the VSIX as a GitHub Release asset and cleans up the local file after publishing.
+
+### Fixed
+
+- **Unicode property escapes for invisible-character rejection** — the `CONTROL_CHAR` regex in `customWords` sanitisation now uses `\p{C}` (Unicode property escapes) instead of a hand-rolled character class, so RTL-override, zero-width, and other invisible format characters are reliably rejected across the full Unicode space.
+- **`package-lock.json` staged during release** — `release.sh` now adds `package-lock.json` alongside `package.json` when committing the version bump, so the lockfile no longer drifts out of sync with the released version.
+
 ## [1.0.0] - 2026-04-20
 
 First full public release. Everything a Rich Presence extension for VS Code should do — the cycling word, the language icon, smart state detection, idle handling — behind a single install-and-forget install.
