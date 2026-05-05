@@ -1,0 +1,74 @@
+name: Publish to Marketplaces
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing release tag to (re)publish (e.g. v1.0.2)"
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    env:
+      RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Download VSIX from release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p dist-release
+          gh release download "$RELEASE_TAG" \
+            --repo "${{ github.repository }}" \
+            --pattern "*.vsix" \
+            --dir ./dist-release
+          ls -la dist-release/
+
+      - name: Resolve VSIX path
+        id: vsix
+        run: |
+          VSIX_PATH="$(ls dist-release/*.vsix | head -n1)"
+          if [ -z "$VSIX_PATH" ]; then
+            echo "ERROR: no .vsix asset found on release $RELEASE_TAG"
+            exit 1
+          fi
+          echo "path=$VSIX_PATH" >> "$GITHUB_OUTPUT"
+
+      - name: Publish to VS Code Marketplace
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+        run: |
+          if [ -z "$VSCE_PAT" ]; then
+            echo "ERROR: VSCE_PAT secret is not set"
+            exit 1
+          fi
+          npx --yes @vscode/vsce@^3 publish \
+            --packagePath "${{ steps.vsix.outputs.path }}" \
+            --pat "$VSCE_PAT"
+
+      - name: Publish to Open VSX Registry
+        env:
+          OVSX_PAT: ${{ secrets.OVSX_PAT }}
+        run: |
+          if [ -z "$OVSX_PAT" ]; then
+            echo "OVSX_PAT not set — skipping Open VSX publish."
+            exit 0
+          fi
+          npx --yes ovsx publish \
+            "${{ steps.vsix.outputs.path }}" \
+            --pat "$OVSX_PAT"
