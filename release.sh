@@ -47,12 +47,7 @@ echo "==> package vsix"
 npx vsce package --no-update-package-json
 
 git add package.json package-lock.json
-git commit -m "$(cat <<EOF
-chore: release ${TAG}
-
-Co-Authored-By: Bef <entity@achilles-pc>
-EOF
-)"
+git commit -m "chore: release ${TAG}"
 
 git tag "$TAG"
 
