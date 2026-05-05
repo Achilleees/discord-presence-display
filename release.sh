@@ -31,6 +31,12 @@ if [[ -n "$(git status --porcelain)" ]]; then
   exit 1
 fi
 
+if ! grep -q "^## \[${NEXT}\]" CHANGELOG.md; then
+  echo "ERROR: CHANGELOG.md is missing a [${NEXT}] section."
+  echo "Add it (with date) before running ./release.sh ${BUMP}."
+  exit 1
+fi
+
 echo "==> typecheck"
 npm run typecheck
 
