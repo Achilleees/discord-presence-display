@@ -49,6 +49,37 @@ vi.mock('../src/instance-lock', () => ({
   release: vi.fn(),
 }));
 
+// Hoisted bridge for opt-in deterministic picker overrides. When unset, the
+// real presence.pickCandidateWord runs; tests that need observable pick
+// behaviour (audit 47-E2) point `picker` at a controlled stub that records
+// every (state, config, elapsedMs) it receives.
+const presenceMocks = vi.hoisted(() => ({
+  picker: undefined as
+    | undefined
+    | ((state: unknown, config: unknown, elapsedMs: number) => string),
+  pickCalls: [] as Array<{ recent: readonly string[]; ringSize: number }>,
+}));
+
+vi.mock('../src/presence', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../src/presence')>();
+  return {
+    ...actual,
+    pickCandidateWord: (
+      state: import('../src/state').State,
+      config: import('../src/config').Config,
+      elapsedMs: number,
+    ): string => {
+      // Record a snapshot of the recent ring before the pick — that's the
+      // input the gate determines. Snapshot via slice() because the ring
+      // exposes a defensive copy already; this just makes intent explicit.
+      const recent = state.recentWords.values().slice();
+      presenceMocks.pickCalls.push({ recent, ringSize: recent.length });
+      if (presenceMocks.picker) return presenceMocks.picker(state, config, elapsedMs);
+      return actual.pickCandidateWord(state, config, elapsedMs);
+    },
+  };
+});
+
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-expect-error mock module resolved via vitest alias
 import {
@@ -81,6 +112,8 @@ beforeEach(() => {
   __resetCommands();
   __resetEvents();
   instances.length = 0;
+  presenceMocks.picker = undefined;
+  presenceMocks.pickCalls.length = 0;
 });
 
 afterEach(() => {
@@ -753,6 +786,45 @@ describe('idle none engagement', () => {
 });
 
 describe('toggle resume while idle', () => {
+  it('resumed payload carries a real word, clears isIdle, and restarts the cycle', async () => {
+    // P7: strengthen the assertion side of the existing toggle-resume test.
+    // The original test only proved setActivity was called; this one proves
+    // the payload is well-formed AND the cycle is re-armed.
+    vi.useFakeTimers();
+    __setConfig({
+      'claudeSpinner.cycleSpeed': 10,
+      'claudeSpinner.idleThresholdMinutes': 1,
+      'claudeSpinner.idleBehavior': 'clear',
+    });
+    extension.activate(mkContext() as never);
+    await Promise.resolve();
+    await Promise.resolve();
+    if (instances[0]) instances[0].isConnected = true;
+    const onReady = instances[0].on.mock.calls.find((c: unknown[]) => c[0] === 'ready')![1] as () => void;
+    onReady();
+    await vi.advanceTimersByTimeAsync(100);
+    __setFocused(false);
+    await vi.advanceTimersByTimeAsync(60_001);
+    const toggle = __getRegisteredCommand('claudeSpinner.toggle')!;
+    toggle(); // pause
+    await Promise.resolve();
+    instances[0].user!.setActivity.mockClear();
+    toggle(); // resume
+    await vi.advanceTimersByTimeAsync(100);
+    // Payload assertion: details is a real word with the "..." suffix that
+    // buildPresencePayload appends — proves we're NOT emitting a degraded
+    // state-only payload.
+    expect(instances[0].user!.setActivity.mock.calls.length).toBeGreaterThanOrEqual(1);
+    const resumed = instances[0].user!.setActivity.mock.calls[0][0] as { details?: string };
+    expect(resumed.details).toMatch(/\.\.\.$/);
+    expect(resumed.details!.length).toBeGreaterThan(3);
+    // Cycle restart assertion: advance one cycleSpeed and observe a NEW
+    // setActivity beyond the resume push.
+    const afterResume = instances[0].user!.setActivity.mock.calls.length;
+    await vi.advanceTimersByTimeAsync(11_000);
+    expect(instances[0].user!.setActivity.mock.calls.length).toBeGreaterThan(afterResume);
+  });
+
   it('overrides idle state so presence reappears immediately', async () => {
     vi.useFakeTimers();
     __setConfig({
@@ -812,52 +884,49 @@ describe('toggle command', () => {
 });
 
 describe('audit 47-E2: recentWords gates on delivered', () => {
-  it('does NOT add the word to recentWords when pushPresence fails', async () => {
+  // Deterministic rewrite: drive the picker through a presence-module mock
+  // so the (state, config, elapsedMs) → word mapping is fully controlled,
+  // then inspect the `recent` snapshot captured at each pick site. The
+  // gate-on-delivered contract guarantees that a failed push's word does
+  // NOT appear in the recent ring observed by the *next* pick.
+  it('does NOT add the word to recentWords when pushPresence fails (deterministic)', async () => {
     vi.useFakeTimers();
+    // Drive the picker through a fixed sequence: A, B, C. Push 1 succeeds,
+    // push 2 fails (B never reaches Discord), push 3 succeeds.
+    const sequence = ['Alpha', 'Beta', 'Gamma'];
+    let pickIdx = 0;
+    presenceMocks.picker = () => sequence[Math.min(pickIdx++, sequence.length - 1)];
+
     extension.activate(mkContext() as never);
     await Promise.resolve();
     await Promise.resolve();
     if (instances[0]) instances[0].isConnected = true;
-    // First push: succeed, captures a baseline word into the ring.
-    const baselineWord = await new Promise<string>((resolve) => {
-      instances[0].user!.setActivity.mockImplementationOnce((activity: { details: string }) => {
-        resolve(activity.details);
-        return Promise.resolve(undefined);
-      });
-      const readyCall = instances[0].on.mock.calls.find((c: unknown[]) => c[0] === 'ready');
-      (readyCall![1] as () => void)();
-    });
-    expect(baselineWord).toBeDefined();
 
-    // Force the next push to fail at the IPC layer. The pre-fix behavior
-    // would still add the picked word to recentWords; the post-fix
-    // behavior must skip the ring update so a future tick can re-pick it.
+    // Push 1: onReady success.
+    const readyCall = instances[0].on.mock.calls.find((c: unknown[]) => c[0] === 'ready');
+    (readyCall![1] as () => void)();
+    await vi.advanceTimersByTimeAsync(100);
+    const firstPayload = instances[0].user!.setActivity.mock.calls[0][0] as { details: string };
+    expect(firstPayload.details).toBe('Alpha...');
+
+    // Push 2: cycle tick. Force IPC failure for this one.
     instances[0].user!.setActivity.mockRejectedValueOnce(new Error('IPC down'));
     await vi.advanceTimersByTimeAsync(15_100);
+    const secondPayload = instances[0].user!.setActivity.mock.calls[1][0] as { details: string };
+    expect(secondPayload.details).toBe('Beta...');
 
-    // We can't directly inspect recentWords from outside the module, but
-    // we can prove the ring did NOT advance: force ANOTHER successful push,
-    // capture the word, and assert it CAN equal the failed pick (i.e., the
-    // failed word was not burned into the ring). With the pre-fix code,
-    // every consecutive pick is forced unique. With the fix, a failed
-    // pick can repeat. We assert the weaker but observable property:
-    // the 3-pick sequence over 2 successes + 1 failure spans <= 3
-    // distinct words (vs. the pre-fix invariant of exactly 3 distinct).
-    const words = new Set<string>([baselineWord]);
-    for (let i = 0; i < 2; i++) {
-      const captured = await new Promise<string>((resolve) => {
-        instances[0].user!.setActivity.mockImplementationOnce((activity: { details: string }) => {
-          resolve(activity.details);
-          return Promise.resolve(undefined);
-        });
-        void vi.advanceTimersByTimeAsync(15_100);
-      });
-      words.add(captured);
-    }
-    // The ring did not record the failed pick, so the universe of possible
-    // emitted words across the next two ticks is broader than it would be
-    // with unconditional ring commits. We accept any size <= 3 as proof.
-    expect(words.size).toBeLessThanOrEqual(3);
+    // Push 3: cycle tick. Should succeed.
+    await vi.advanceTimersByTimeAsync(15_100);
+    const thirdPayload = instances[0].user!.setActivity.mock.calls[2][0] as { details: string };
+    expect(thirdPayload.details).toBe('Gamma...');
+
+    // The gate-on-delivered contract: the recent ring observed at pick 3
+    // must contain Alpha (delivered) but NOT Beta (failed). Three picks ran
+    // in total; the last pickCalls entry is the recent snapshot for push 3.
+    expect(presenceMocks.pickCalls).toHaveLength(3);
+    const recentAtPick3 = presenceMocks.pickCalls[2].recent;
+    expect(recentAtPick3).toContain('Alpha');
+    expect(recentAtPick3).not.toContain('Beta');
   });
 });
 

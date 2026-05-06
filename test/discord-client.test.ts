@@ -153,3 +153,191 @@ describe('disconnect', () => {
     expect(discord.isReady()).toBe(false);
   });
 });
+
+describe('formatActivity created_at stability', () => {
+  // P1: The whole reason discord-client.ts exists. Inspect the wire payload
+  // sent through request('SET_ACTIVITY', ...) instead of the bridged
+  // setActivity call so a regression in formatActivity is observable.
+  function getRequestPayload(inst: ClientInstance, callIndex: number): Record<string, unknown> {
+    const call = inst.request.mock.calls[callIndex];
+    expect(call?.[0]).toBe('SET_ACTIVITY');
+    return (call[1] as { activity: Record<string, unknown> }).activity;
+  }
+
+  it('emits identical created_at across multiple pushes within one connect()', async () => {
+    await discord.connect('id');
+    instances[0].isConnected = true;
+    await discord.pushPresence({ details: 'first' });
+    await discord.pushPresence({ details: 'second' });
+    const first = getRequestPayload(instances[0], 0);
+    const second = getRequestPayload(instances[0], 1);
+    expect(typeof first.created_at).toBe('number');
+    expect(first.created_at).toBe(second.created_at);
+  });
+
+  it('emits a different created_at across reconnects (sessionCreatedAt resets)', async () => {
+    await discord.connect('first');
+    instances[0].isConnected = true;
+    await discord.pushPresence({ details: 'a' });
+    const firstCreatedAt = getRequestPayload(instances[0], 0).created_at;
+    // Force a measurable gap so Date.now() advances between sessions —
+    // sessionCreatedAt is captured at connect() time and otherwise both
+    // pushes might land on the same millisecond.
+    await new Promise((r) => setTimeout(r, 5));
+    await discord.connect('second');
+    instances[1].isConnected = true;
+    await discord.pushPresence({ details: 'a' });
+    const secondCreatedAt = getRequestPayload(instances[1], 0).created_at;
+    expect(typeof firstCreatedAt).toBe('number');
+    expect(typeof secondCreatedAt).toBe('number');
+    expect(secondCreatedAt).not.toBe(firstCreatedAt);
+  });
+
+  it('flattens largeImageKey/smallImageKey into assets and omits assets when no keys', async () => {
+    await discord.connect('id');
+    instances[0].isConnected = true;
+    await discord.pushPresence({
+      details: 'with-assets',
+      largeImageKey: 'big',
+      smallImageKey: 'small',
+      largeImageText: 'Big',
+      smallImageText: 'Small',
+    });
+    await discord.pushPresence({ details: 'without-assets' });
+    const withAssets = getRequestPayload(instances[0], 0);
+    const withoutAssets = getRequestPayload(instances[0], 1);
+    expect(withAssets.assets).toEqual({
+      large_image: 'big',
+      small_image: 'small',
+      large_text: 'Big',
+      small_text: 'Small',
+    });
+    expect(withoutAssets.assets).toBeUndefined();
+    // Wire-format invariant: instance is always present and false.
+    expect(withAssets.instance).toBe(false);
+    expect(withoutAssets.instance).toBe(false);
+  });
+});
+
+describe('pushPresence dedup cache', () => {
+  // P2: identical payload should be deduped; clearPresence resets the cache.
+  it('skips request() on identical consecutive payloads', async () => {
+    await discord.connect('id');
+    instances[0].isConnected = true;
+    await discord.pushPresence({ details: 'same' });
+    await discord.pushPresence({ details: 'same' });
+    expect(instances[0].request).toHaveBeenCalledTimes(1);
+  });
+
+  it('re-fires after clearPresence resets the cache', async () => {
+    await discord.connect('id');
+    instances[0].isConnected = true;
+    await discord.pushPresence({ details: 'same' });
+    await discord.clearPresence();
+    await discord.pushPresence({ details: 'same' });
+    expect(instances[0].request).toHaveBeenCalledTimes(2);
+  });
+
+  it('reverts the cache on rejection so a retry of the same payload re-fires (P3)', async () => {
+    await discord.connect('id');
+    instances[0].isConnected = true;
+    instances[0].user!.setActivity.mockRejectedValueOnce(new Error('ipc fail'));
+    const first = await discord.pushPresence({ details: 'retry-me' });
+    expect(first).toBe(false);
+    const second = await discord.pushPresence({ details: 'retry-me' });
+    expect(second).toBe(true);
+    expect(instances[0].request).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('IPC deadline timeouts', () => {
+  // P4: pushPresence that hangs past 8s resolves false and wipes the cache.
+  it('pushPresence resolves false after 8s deadline and forces re-fire on next push', async () => {
+    vi.useFakeTimers();
+    try {
+      await discord.connect('id');
+      instances[0].isConnected = true;
+      // Make setActivity hang forever — request() will inherit the hang.
+      instances[0].user!.setActivity.mockImplementation(() => new Promise<void>(() => {}));
+      const p = discord.pushPresence({ details: 'hang' });
+      // Advance past the 8s deadline.
+      await vi.advanceTimersByTimeAsync(8_001);
+      const result = await p;
+      expect(result).toBe(false);
+      // Cache was force-cleared; identical next push must re-fire.
+      // Swap to a resolving impl so the second push completes.
+      instances[0].user!.setActivity.mockImplementation(() => Promise.resolve(undefined));
+      const result2 = await discord.pushPresence({ details: 'hang' });
+      expect(result2).toBe(true);
+      expect(instances[0].request).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  // P5: clearPresence that hangs past 8s resolves; a late rejection must not
+  // surface as an unhandled rejection.
+  it('clearPresence resolves within 8s deadline and swallows late rejection', async () => {
+    vi.useFakeTimers();
+    const unhandled: unknown[] = [];
+    const onUnhandled = (reason: unknown): void => { unhandled.push(reason); };
+    process.on('unhandledRejection', onUnhandled);
+    try {
+      await discord.connect('id');
+      instances[0].isConnected = true;
+      let rejectLate: ((err: Error) => void) | undefined;
+      instances[0].user!.clearActivity.mockImplementation(
+        () => new Promise<void>((_, reject) => { rejectLate = reject; }),
+      );
+      const p = discord.clearPresence();
+      await vi.advanceTimersByTimeAsync(8_001);
+      await expect(p).resolves.toBeUndefined();
+      // Now reject the original promise — should be swallowed.
+      rejectLate!(new Error('late ipc fail'));
+      // Drain microtasks so any unhandled rejection would surface.
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(unhandled).toHaveLength(0);
+    } finally {
+      process.off('unhandledRejection', onUnhandled);
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe('connect/disconnect concurrency', () => {
+  // P6: disconnect arriving during connect's slow login must not leave a
+  // surviving client. The wantsConnection re-check after login should null
+  // and destroy the just-logged-in instance.
+  it('disconnect during slow login destroys the orphan client and leaves no active connection', async () => {
+    let resolveLogin: (() => void) | undefined;
+    const slowLogin = new Promise<void>((resolve) => { resolveLogin = resolve; });
+    // Patch the next constructed instance's login to hang.
+    const originalPush = instances.push.bind(instances);
+    instances.push = (...args: ClientInstance[]) => {
+      for (const inst of args) inst.login = vi.fn().mockReturnValue(slowLogin);
+      return originalPush(...args);
+    };
+    try {
+      const connectP = discord.connect('id');
+      // Microtask: lets connect() create the Client and start awaiting login.
+      await Promise.resolve();
+      // Disconnect while login is still pending. wantsConnection flips false.
+      const disconnectP = discord.disconnect();
+      // Now resolve login — connect's post-login wantsConnection re-check
+      // must observe the false flag and destroy the orphan.
+      resolveLogin!();
+      await connectP;
+      await disconnectP;
+      expect(instances).toHaveLength(1);
+      // Must be called twice: once by disconnect()'s own teardown, once
+      // by connect()'s post-login wantsConnection re-check that nulls the
+      // orphan. A single call would mean the post-login guard was skipped
+      // and a stale client survived.
+      expect(instances[0].destroy).toHaveBeenCalledTimes(2);
+      expect(discord.isReady()).toBe(false);
+    } finally {
+      instances.push = originalPush;
+    }
+  });
+});
