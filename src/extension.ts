@@ -147,13 +147,17 @@ async function pushImmediate(
     // never showed.
     if (state.paused) return;
 
-    // For cycling: commit to the ring regardless of push success so the
-    // anti-duplicate picker advances. For pinned mode: only commit if
-    // pushPresence reported success — a transient IPC write failure
-    // shouldn't pin a word Discord never displayed.
-    if (config.cycleWords) state.recentWords.add(word);
-    else if (delivered) state.pinnedWord = word;
-    if (delivered) state.lastWord = word;
+    // Both cycling and pinned modes commit only on confirmed delivery.
+    // A transient IPC write failure or timeout shouldn't burn a slot in
+    // the recentWords ring (cycling) or claim a pinnedWord Discord never
+    // saw (pinned) — the picker would otherwise diverge from displayed
+    // reality. The next cycle tick can re-pick the same word; that's
+    // fine since a failed push means Discord doesn't currently hold it.
+    if (delivered) {
+      if (config.cycleWords) state.recentWords.add(word);
+      else state.pinnedWord = word;
+      state.lastWord = word;
+    }
   } finally {
     pushing = false;
     if (pushDirty) {
@@ -326,10 +330,19 @@ function resumeAfterReady(): void {
     return;
   }
 
+  // Discord's own activity slot was cleared during the disconnect window,
+  // so the discord-client dedup cache no longer reflects what Discord
+  // holds. Drop the cache before the restore push so the post-reconnect
+  // payload is never dedup-skipped against a pre-disconnect payload that
+  // Discord forgot.
+  discord.invalidateDedupCache();
+
   // Push once to restore visibility post-reconnect. Bypass the idle-pause
   // silence guard — this is the exception the plan carves out for pause
-  // on reconnect.
-  void pushImmediate({ bypassIdleSilence: true });
+  // on reconnect. useLastWord honors the README "last presence stays
+  // visible" contract: the user shouldn't see the displayed word change
+  // just because Discord momentarily disconnected.
+  void pushImmediate({ bypassIdleSilence: true, useLastWord: true });
 
   if (state.isIdle && config.idleBehavior === 'pause') return;
   startCycle();

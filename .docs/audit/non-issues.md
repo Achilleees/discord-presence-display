@@ -160,3 +160,17 @@ reads this file and skips matching patterns in future audits.
 - **Pattern:** Auditor noted that summing many large weights cumulatively could cause `pick > total` due to FP rounding, picking the "wrong" word.
 - **Why it's correct:** The auditor self-rejected this with "Already handled by the trailing fallback. No action needed. Drop-candidate." The function's last-resort fallback returns the final element when no cumulative bucket matches — making any FP drift cosmetic at most. Both verifiers (Opus 4.6 and 4.7) classified this as FALSE-POSITIVE in the deep audit.
 - **Verified:** 2026-05-05
+
+## Behavior Contracts
+
+### `state.startTimestamp` counts from VS Code session, not from extension enable
+- **Location:** `src/extension.ts — activate(), togglePaused(), handleConfigChange()`
+- **Pattern:** Auditors flag that `state.startTimestamp` is set once at activation and never refreshed when `claudeSpinner.enabled` toggles off→on. The Discord-side elapsed time keeps counting through the disabled period.
+- **Why it's correct:** This is the documented contract. The README explicitly states "Counts from when VS Code opened, not from when the extension was last enabled — disabling and re-enabling does not reset the timer." Resetting on enable would conflict with the "session = VS Code session" interpretation that several other constants (e.g., `startMonotonicMs`, time-tier classification) already encode.
+- **Verified:** 2026-05-06 (originally 46-B5 from 2026-05-05 deep audit)
+
+### `applyIdleBehavior('slow')` engagement push lives at `onWindowStateChange`, not in the idle-behavior switch
+- **Location:** `src/extension.ts:388-394 (onWindowStateChange focus-regain branch)`
+- **Pattern:** Auditors flag that the `case 'slow'` arm of `applyIdleBehavior()` only calls `startCycle()` without pushing fresh presence — the displayed word stays until the next slow tick (up to 120s).
+- **Why it's correct:** Engagement (focus regain) is handled at `onWindowStateChange` line 388-394, which fires `pushImmediate()` and `startCycle()` (now at normal interval, since `state.isIdle = false` is set first and `computeIntervalMs` reads it). The "stale word during idle" period is by design — the user has stepped away. If they want responsive updates while unfocused, they pick `idleBehavior: 'none'`. The switch arm intentionally does not push: the user is not watching at idle entry.
+- **Verified:** 2026-05-06 (originally 46-B9 from 2026-05-05 deep audit)

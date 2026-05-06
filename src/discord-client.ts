@@ -233,6 +233,17 @@ export async function pushPresence(activity: SetActivity): Promise<boolean> {
   }
 }
 
+// Drop the dedup cache without touching the connection. resumeAfterReady
+// uses this on a Discord ready-event so the first post-reconnect push of
+// `state.lastWord` is not silently deduped against the payload that was
+// in the cache before the disconnect — Discord's own activity slot was
+// cleared during the disconnect window, so the cache no longer reflects
+// what Discord holds. connect()/disconnect() already reset the cache for
+// their own paths; this export covers external reconnect events.
+export function invalidateDedupCache(): void {
+  lastPayloadJson = undefined;
+}
+
 export async function clearPresence(): Promise<void> {
   const c = client;
   if (!c?.isConnected) return;

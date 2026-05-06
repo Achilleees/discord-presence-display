@@ -47,7 +47,7 @@ All settings live under the `claudeSpinner.*` namespace (internal ID, kept stabl
 | `claudeSpinner.customWords` | string[] | `[]` | Extra words mixed into the rotation. Each entry 1–125 characters. Case-sensitive — `"working"` and built-in `"Working"` both appear. |
 | `claudeSpinner.showLanguage` | boolean | `true` | Show the `Working in X` line beneath the cycling word. |
 | `claudeSpinner.showWorkspace` | boolean | `false` | Append the workspace folder name to the status line. Off by default for privacy. |
-| `claudeSpinner.showElapsedTime` | boolean | `true` | Show the session elapsed time on your profile. |
+| `claudeSpinner.showElapsedTime` | boolean | `true` | Show the session elapsed time on your profile. Counts from when VS Code opened, not from when the extension was last enabled — disabling and re-enabling does not reset the timer. |
 | `claudeSpinner.showLanguageIcon` | boolean | `true` | Use a per-language icon as the small overlay. Falls back to the Claude logo. |
 | `claudeSpinner.smartState` | boolean | `true` | Vary the status line when debugging, reviewing a diff, or focused on the terminal. |
 | `claudeSpinner.idleBehavior` | `slow` / `pause` / `clear` / `none` | `slow` | What happens when VS Code loses focus past the idle threshold. |
