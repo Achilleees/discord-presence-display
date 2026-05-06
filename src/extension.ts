@@ -27,6 +27,7 @@ let isPrimary = false;
 let pushing = false;
 let pushDirty = false;
 let pushDirtyBypass = false;
+let pushDirtyUseLastWord = false;
 // Track active debug session ids so we don't depend on VS Code's undocumented
 // event ordering around vscode.debug.activeDebugSession updates.
 const activeDebugSessions = new Set<string>();
@@ -80,6 +81,11 @@ async function pushImmediate(
   if (pushing) {
     pushDirty = true;
     if (opts.bypassIdleSilence) pushDirtyBypass = true;
+    // Capture useLastWord so the retry preserves the caller's intent —
+    // otherwise an idle-pause push that landed during an in-flight cycle
+    // tick would silently swap the displayed word for a fresh pick on
+    // the retry, violating the "last presence stays visible" contract.
+    if (opts.useLastWord) pushDirtyUseLastWord = true;
     return;
   }
   pushing = true;
@@ -154,11 +160,17 @@ async function pushImmediate(
       pushDirty = false;
       if (pushDirtyBypass) {
         pushDirtyBypass = false;
+        const useLastWord = pushDirtyUseLastWord;
+        pushDirtyUseLastWord = false;
         // Retry the bypass push immediately (not debounced) — schedulePush
         // would drop the bypass bit and silently swallow the push against
         // the idle-pause silence guard.
-        void pushImmediate({ bypassIdleSilence: true });
+        void pushImmediate({ bypassIdleSilence: true, useLastWord });
       } else {
+        // schedulePush always picks fresh; useLastWord is a same-push
+        // pinning intent that doesn't survive a 750ms debounce. Drop the
+        // flag rather than letting it leak into a future call.
+        pushDirtyUseLastWord = false;
         schedulePush();
       }
     }
@@ -337,6 +349,7 @@ function togglePaused(): void {
     // not re-arm a stale debounced retry through the finally block.
     pushDirty = false;
     pushDirtyBypass = false;
+    pushDirtyUseLastWord = false;
     void discord.clearPresence();
   } else {
     // Explicit resume overrides any lingering idle state so presence
@@ -439,10 +452,15 @@ function handleConfigChange(next: Config): void {
     // "paused state does not persist across VS Code restarts" contract
     // from the plan so a re-enable starts fresh rather than silent.
     state.paused = false;
+    // Clear lastWord too: on disable→edit-customWords→enable→idle-pause,
+    // the useLastWord short-circuit in pushImmediate would otherwise emit
+    // a word the user removed during the disabled window.
+    state.lastWord = undefined;
     // Also clear pushDirty so a mid-flight push completing after shutdown
     // doesn't arm a stray post-shutdown debounce via its finally block.
     pushDirty = false;
     pushDirtyBypass = false;
+    pushDirtyUseLastWord = false;
     stopLockCheck();
     if (isPrimary) { release(); isPrimary = false; }
     void discord.disconnect();
@@ -467,6 +485,7 @@ function handleConfigChange(next: Config): void {
   }
 
   if (transition.clearPinnedWord) state.pinnedWord = undefined;
+  if (transition.clearLastWord) state.lastWord = undefined;
   if (transition.flushRecentWords) state.recentWords.clear();
   // On reconnect, skip cycle/idle/push restarts here — resumeAfterReady
   // will apply the correct state when the new client becomes ready, and
@@ -511,6 +530,11 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.window.onDidChangeActiveTextEditor((editor) => {
       if (!state) return;
       state.currentLanguage = editor?.document.languageId;
+      // Refresh workspace name too — in multi-root workspaces, switching the
+      // active editor between folders should re-resolve which folder owns
+      // the visible file. Without this the activation-time folder name
+      // leaks for the rest of the session.
+      state.workspaceName = getWorkspaceName();
       if (editor) lastInteractedSource = 'editor';
       state.focusContext = computeFocusContext();
       if (config?.enabled) schedulePush();
@@ -549,7 +573,11 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.debug.onDidStartDebugSession((session) => {
       if (!state) return;
       if (session?.id) activeDebugSessions.add(session.id);
-      state.debugActive = true;
+      // Derive from the set rather than setting unconditionally — matches
+      // activate()'s seed pattern and the terminate handler. A third-party
+      // adapter that emits a session without an id would otherwise stick
+      // debugActive=true with no way to flip it back.
+      state.debugActive = activeDebugSessions.size > 0;
       if (config?.enabled) schedulePush();
     }),
     vscode.debug.onDidTerminateDebugSession((session) => {
@@ -599,6 +627,7 @@ export function deactivate(): void {
   pushing = false;
   pushDirty = false;
   pushDirtyBypass = false;
+  pushDirtyUseLastWord = false;
   activeDebugSessions.clear();
   stopLockCheck();
   if (isPrimary) { release(); isPrimary = false; }

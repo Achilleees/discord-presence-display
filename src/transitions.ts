@@ -4,6 +4,7 @@ export interface ConfigTransition {
   readonly shutdown: boolean;
   readonly reconnect: boolean;
   readonly clearPinnedWord: boolean;
+  readonly clearLastWord: boolean;
   readonly flushRecentWords: boolean;
   readonly restartCycle: boolean;
   readonly restartIdleTimer: boolean;
@@ -20,6 +21,7 @@ const NO_OP: ConfigTransition = {
   shutdown: false,
   reconnect: false,
   clearPinnedWord: false,
+  clearLastWord: false,
   flushRecentWords: false,
   restartCycle: false,
   restartIdleTimer: false,
@@ -76,6 +78,10 @@ export function computeConfigTransition(
   return {
     ...NO_OP,
     clearPinnedWord,
+    // Clear lastWord when the pool changes so the useLastWord short-circuit
+    // in pushImmediate can't emit a word the user just removed from
+    // customWords. Same trigger as flushRecentWords for the same reason.
+    clearLastWord: poolAffectingChanged,
     // Flush the recent-words ring when the pool changes so obsolete custom
     // words left over from a prior pool don't shrink the effective
     // anti-duplicate window on the next pick.

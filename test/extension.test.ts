@@ -503,6 +503,29 @@ describe('event listeners', () => {
     const latest = instances[0].user!.setActivity.mock.calls.at(-1)?.[0] as { state?: string };
     expect(latest?.state).toBe('Working in Rust — my-new-repo');
   });
+
+  it('switching active editor between multi-root folders refreshes workspace name', async () => {
+    __setConfig({ 'claudeSpinner.showWorkspace': true });
+    (mockWorkspace as unknown as {
+      workspaceFolders: readonly { name: string; uri: { fsPath: string } }[] | undefined;
+    }).workspaceFolders = [
+      { name: 'frontend', uri: { fsPath: '/repo/frontend' } },
+      { name: 'backend', uri: { fsPath: '/repo/backend' } },
+    ];
+    await setupConnected();
+    __setActiveEditor({
+      document: { languageId: 'typescript', uri: { fsPath: '/repo/frontend/src/app.ts' } },
+    });
+    await vi.advanceTimersByTimeAsync(1_000);
+    let latest = instances[0].user!.setActivity.mock.calls.at(-1)?.[0] as { state?: string };
+    expect(latest?.state).toBe('Working in TypeScript — frontend');
+    __setActiveEditor({
+      document: { languageId: 'rust', uri: { fsPath: '/repo/backend/src/main.rs' } },
+    });
+    await vi.advanceTimersByTimeAsync(1_000);
+    latest = instances[0].user!.setActivity.mock.calls.at(-1)?.[0] as { state?: string };
+    expect(latest?.state).toBe('Working in Rust — backend');
+  });
 });
 
 describe('debug session', () => {

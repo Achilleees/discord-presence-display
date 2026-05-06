@@ -197,6 +197,41 @@ describe('computeConfigTransition', () => {
     });
   });
 
+  describe('clearLastWord (E2 regression)', () => {
+    it('fires when customWords changes', () => {
+      const t = computeConfigTransition(
+        cfg({ customWords: ['A'] }),
+        cfg({ customWords: ['A', 'B'] }),
+        ACTIVE_CTX,
+      );
+      expect(t.clearLastWord).toBe(true);
+    });
+    it('fires when wordRarity flips', () => {
+      const t = computeConfigTransition(
+        cfg({ wordRarity: false }),
+        cfg({ wordRarity: true }),
+        ACTIVE_CTX,
+      );
+      expect(t.clearLastWord).toBe(true);
+    });
+    it('fires when timeBasedPools flips', () => {
+      const t = computeConfigTransition(
+        cfg({ timeBasedPools: false }),
+        cfg({ timeBasedPools: true }),
+        ACTIVE_CTX,
+      );
+      expect(t.clearLastWord).toBe(true);
+    });
+    it('does not fire for unrelated settings', () => {
+      const t = computeConfigTransition(
+        cfg({ showWorkspace: false }),
+        cfg({ showWorkspace: true }),
+        ACTIVE_CTX,
+      );
+      expect(t.clearLastWord).toBe(false);
+    });
+  });
+
   describe('per-setting schedulePush', () => {
     for (const key of [
       'showLanguage',

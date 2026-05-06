@@ -47,3 +47,16 @@ Disputed findings from verified audit reports that require human judgment.
   - Trust the comment (4.6 view): leave as-is, document intent more clearly if needed
   - Trust the symmetry argument (4.7 view): add `&& delivered` to line 121
 - **Recommend:** Read the comment in context — the documented intent should win unless the comment itself is wrong.
+
+---
+
+### B2 — `resumeAfterReady` reconnect during idle-pause picks fresh word instead of `lastWord` (NEEDS-HUMAN, 2026-05-06)
+- **File:** `src/extension.ts:316-323` (specifically line 320)
+- **Issue:** Per audit: `resumeAfterReady` calls `pushImmediate({ bypassIdleSilence: true })` without `useLastWord: true`. When reconnect happens during idle-pause in cycling mode, the picker excludes the recent ring and forces a fresh word, violating the README "last presence stays visible" contract.
+- **Why NEEDS-HUMAN:** The recommended fix (`useLastWord: true`) was attempted and broke the existing test `'reconnect during idle "pause" pushes once but does not start cycling'`. Investigation: in production, a real reconnect goes through `discord.connect()` which resets `lastPayloadJson` (the dedup cache). The fixed code re-uses `state.lastWord`, builds the same payload as the prior idle-engagement push, and would correctly bypass dedup in production because the cache was reset on reconnect. But the test simulates reconnect by directly invoking the `onReady` callback — without going through `discord.connect`, the dedup cache still holds the prior payload, so the second push gets dedup-skipped and `setActivity` is never called.
+- **Options:**
+  - Update the test to reset the dedup cache before triggering `onReady` (model real reconnect behavior)
+  - Add a `bypassDedup` option to pushImmediate/pushPresence that resumeAfterReady opts into
+  - Refactor: have `resumeAfterReady` reset the dedup cache itself before pushing (matches discord-client.connect's existing reset)
+  - Move the idle-pause branch to call `applyIdleBehavior('pause')` directly (centralizes the lastWord pinning, but still hits the same dedup cache issue)
+- **Recommend:** Either update the test (the test is asserting buggy behavior — it cares that exactly 1 setActivity call happens, but in production with a real reconnect, the cache is cleared and that push goes through unchanged) OR add a dedup-bypass to `resumeAfterReady`'s push since reconnect is a known cache-invalidation moment.

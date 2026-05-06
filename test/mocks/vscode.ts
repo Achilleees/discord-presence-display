@@ -77,7 +77,9 @@ const workspaceFoldersListeners = new Set<() => void>();
 
 export const TextEditorSelectionChangeKind = { Keyboard: 1, Mouse: 2, Command: 3 };
 
-export function __setActiveEditor(editor: { document: { languageId: string } } | undefined): void {
+export function __setActiveEditor(
+  editor: { document: { languageId: string; uri?: { fsPath: string } } } | undefined,
+): void {
   window.activeTextEditor = editor;
   for (const listener of activeEditorListeners) listener(editor);
 }
@@ -121,7 +123,9 @@ export function __endDebugSession(id?: string, opts: { keepActiveStale?: boolean
 }
 
 export const window = {
-  activeTextEditor: undefined as { document: { languageId: string } } | undefined,
+  activeTextEditor: undefined as
+    | { document: { languageId: string; uri?: { fsPath: string } } }
+    | undefined,
   activeTerminal: undefined as unknown,
   state: { focused: true },
   tabGroups: {

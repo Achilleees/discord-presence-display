@@ -1,8 +1,31 @@
 import { existsSync, readFileSync, writeFileSync, mkdirSync, rmSync } from 'fs';
 import { join } from 'path';
-import { tmpdir } from 'os';
+import { tmpdir, userInfo } from 'os';
 
-const LOCK_DIR = join(tmpdir(), 'vscode-claude-spinner-presence.lock');
+// Include the user's name so two users on the same Linux host don't race
+// for one lock under a shared /tmp. Without this, the loser falls into
+// orphan-cleanup, can't rm the foreign user's dir (sticky bit), and stays
+// silently stuck in secondary mode. Sanitize separators defensively —
+// most usernames are safe but a `/` would create unintended subdirs.
+function sanitizeUsername(name: string): string {
+  return name.replace(/[/\\]/g, '_');
+}
+function lockUserSuffix(): string {
+  try {
+    return sanitizeUsername(userInfo().username);
+  } catch {
+    // userInfo can throw on certain CI/sandboxed environments; fall back
+    // to an empty suffix so behavior matches the pre-fix (single-user)
+    // case rather than crashing activation.
+    return '';
+  }
+}
+const LOCK_DIR = join(
+  tmpdir(),
+  lockUserSuffix()
+    ? `vscode-claude-spinner-presence-${lockUserSuffix()}.lock`
+    : 'vscode-claude-spinner-presence.lock',
+);
 const LOCK_FILE = join(LOCK_DIR, 'owner');
 const STALE_MS = 120_000;
 const HEARTBEAT_MS = 30_000;
