@@ -174,6 +174,11 @@ export function __resetEvents(): void {
   activeTerminalListeners.clear();
   tabListeners.clear();
   workspaceFoldersListeners.clear();
+  // Cross-test listener leak: configListeners was missed when this helper
+  // was last extended. Stale listeners from a prior test would otherwise
+  // fire against a fresh extension.activate(), papered over by the
+  // `if (!state) return` guards in handlers.
+  configListeners.clear();
   window.state.focused = true;
   window.activeTextEditor = undefined;
   (window as unknown as { activeTerminal: unknown }).activeTerminal = undefined;

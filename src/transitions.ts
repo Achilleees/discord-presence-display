@@ -81,7 +81,10 @@ export function computeConfigTransition(
     // Clear lastWord when the pool changes so the useLastWord short-circuit
     // in pushImmediate can't emit a word the user just removed from
     // customWords. Same trigger as flushRecentWords for the same reason.
-    clearLastWord: poolAffectingChanged,
+    // Also clear on cycleWords flip — pairs with clearPinnedWord above so
+    // a stale cycling-era word isn't restored as pinnedWord via the next
+    // useLastWord push, contradicting the cycleWords=false README contract.
+    clearLastWord: poolAffectingChanged || prev.cycleWords !== next.cycleWords,
     // Flush the recent-words ring when the pool changes so obsolete custom
     // words left over from a prior pool don't shrink the effective
     // anti-duplicate window on the next pick.

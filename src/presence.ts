@@ -171,7 +171,11 @@ export function getLanguageDisplayName(languageId: string): string {
 export function buildStateLine(state: State, config: Config): string | undefined {
   if (!config.showLanguage) return undefined;
 
-  const language = state.currentLanguage;
+  // Treat the literal string "undefined" as no language. It's a valid
+  // VS Code languageId, but its truthy-ness slips past getLanguageDisplayName's
+  // LANG_DISPLAY/normalizeLang lookups and falls through to title-case
+  // → renders as "Working in Undefined" on Discord.
+  const language = state.currentLanguage === 'undefined' ? undefined : state.currentLanguage;
   const displayName = language ? getLanguageDisplayName(language) : undefined;
 
   let base: string | undefined;
@@ -224,13 +228,17 @@ export function buildPresencePayload(
   }
 
   if (config.showLanguageIcon) {
-    const iconKey = getLanguageIconKey(state.currentLanguage);
+    // Same literal-"undefined" filter as buildStateLine — keeps the icon
+    // tooltip and the state line consistent (both fall through to the
+    // Claude-logo fallback when the editor reports "undefined").
+    const language = state.currentLanguage === 'undefined' ? undefined : state.currentLanguage;
+    const iconKey = getLanguageIconKey(language);
     activity.smallImageKey = iconKey;
     // Tooltip names the language whenever we know its display name, even
     // when the icon falls back to the Claude logo — otherwise the state
     // line ("Working in HLSL") would disagree with the tooltip.
-    activity.smallImageText = state.currentLanguage
-      ? getLanguageDisplayName(state.currentLanguage)
+    activity.smallImageText = language
+      ? getLanguageDisplayName(language)
       : FALLBACK_SMALL_TEXT;
   }
 

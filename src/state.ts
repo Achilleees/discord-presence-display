@@ -4,6 +4,12 @@ export class RingBuffer<T> {
   private buf: T[] = [];
   constructor(private readonly capacity: number) {}
   add(value: T): void {
+    // Dedup against the current tail. A useLastWord push that hits the
+    // discord-client dedup cache still resolves with delivered=true and
+    // calls back into this method with the same word — without this guard,
+    // recentWords would re-add an already-recent entry and shrink the
+    // effective anti-duplicate window from 3 to 2.
+    if (this.buf.length > 0 && this.buf[this.buf.length - 1] === value) return;
     this.buf.push(value);
     if (this.buf.length > this.capacity) this.buf.shift();
   }

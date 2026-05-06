@@ -53,7 +53,7 @@ All settings live under the `claudeSpinner.*` namespace (internal ID, kept stabl
 | `claudeSpinner.idleBehavior` | `slow` / `pause` / `clear` / `none` | `slow` | What happens when VS Code loses focus past the idle threshold. |
 | `claudeSpinner.idleThresholdMinutes` | number (1–60) | `5` | Minutes of inactivity before idle mode engages. |
 | `claudeSpinner.wordRarity` | boolean | `false` | Opt-in weighted pick — common (~70%), uncommon (~25%), rare (~5%). |
-| `claudeSpinner.timeBasedPools` | boolean | `false` | Opt-in bias by session length — warming-up, in-the-zone, deep-session word groups. |
+| `claudeSpinner.timeBasedPools` | boolean | `false` | Opt-in bias by session length — warming-up, in-the-zone, deep-session word groups. Tier classification uses a monotonic clock that pauses during system sleep on macOS/Linux, so multi-hour sleeps may briefly desynchronize the displayed tier from Discord's wall-clock elapsed time until the session resumes ticking. |
 
 ### Smart state priority
 

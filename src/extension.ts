@@ -112,6 +112,11 @@ async function pushImmediate(
     // 5. VS Code's `activeTextEditor` stays sticky while focus is on a
     // terminal, so this doesn't drop the language during terminal focus.
     state.currentLanguage = vscode.window.activeTextEditor?.document.languageId;
+    // Re-read workspace name every push too. onDidChangeActiveTextEditor
+    // and onDidChangeWorkspaceFolders both re-resolve it, but neither
+    // fires on an in-place rename of a `.code-workspace` `name` field, so
+    // status would otherwise stay stale until the next folder swap.
+    state.workspaceName = getWorkspaceName();
 
     // useLastWord pins the displayed word across transitions where the
     // README promises continuity (idle→pause). Falls back to a fresh
@@ -133,6 +138,13 @@ async function pushImmediate(
 
     // Guard against deactivate racing with an in-flight push.
     if (!state || !config) return;
+
+    // If config.enabled flipped to false during the IPC roundtrip (shutdown
+    // via handleConfigChange synchronously cleared lastWord/recentWords/
+    // pinnedWord at line 471/501-502), committing a delivered=true here
+    // would re-populate state with the very fields the shutdown branch just
+    // wiped. The next re-enable would then surface a stale pre-disable word.
+    if (!config.enabled) return;
 
     // If idle-clear engaged between our pick and the push (another handler
     // fired clearPresence), don't commit — Discord is now in the cleared
@@ -267,7 +279,11 @@ function startLockCheck(): void {
       isPrimary = true;
       stopLockCheck();
       if (!state) return;
-      state.isIdle = !vscode.window.state.focused;
+      // Don't unconditionally flip state.isIdle here. A user mid-countdown
+      // (idleTimeout armed) would otherwise prematurely engage idle, which
+      // for idleBehavior:'clear' triggers an early clearPresence on the
+      // new connection. Mirrors acquireOrWatch (which deliberately doesn't
+      // touch isIdle) — onWindowStateChange below applies the threshold gate.
       void connectFlow();
       onWindowStateChange();
     }
@@ -363,6 +379,11 @@ function togglePaused(): void {
     pushDirty = false;
     pushDirtyBypass = false;
     pushDirtyUseLastWord = false;
+    // Clear lastWord so a later resume path (specifically: pause →
+    // disconnect → toggle resume → reconnect → resumeAfterReady's
+    // useLastWord push) doesn't re-emit the pre-pause word. README's
+    // "Resume → fresh" contract requires a freshly picked word post-pause.
+    state.lastWord = undefined;
     void discord.clearPresence();
   } else {
     // Explicit resume overrides any lingering idle state so presence
@@ -370,6 +391,14 @@ function togglePaused(): void {
     // restarts interval."
     state.isIdle = false;
     clearIdleTimer();
+    // Defense-in-depth: mirror the pause branch's pushDirty* reset. No
+    // concrete reachable trigger today (the pause branch already clears
+    // these and resume is the only path back), but keeps the symmetry
+    // explicit so a future caller that bypasses togglePaused.pause can't
+    // resurrect a stale dirty flag through the next pushImmediate's finally.
+    pushDirty = false;
+    pushDirtyBypass = false;
+    pushDirtyUseLastWord = false;
     void pushImmediate();
     startCycle();
     // If the window is currently unfocused, re-arm the idle timer so the
@@ -400,6 +429,15 @@ function onWindowStateChange(): void {
     }
   } else {
     clearIdleTimer();
+    // On focus regain, if the active tab is a real text editor (not a
+    // terminal-tab-input), flip lastInteractedSource back to 'editor'. Alt-
+    // tabbing back into VS Code with the editor focused fires no selection
+    // change, so 'terminal' would otherwise stay stuck until the first
+    // keystroke and surface "In the terminal" on the status line.
+    if (vscode.window.activeTextEditor) {
+      lastInteractedSource = 'editor';
+      state.focusContext = computeFocusContext();
+    }
     if (state.isIdle) {
       state.isIdle = false;
       startCycle();
@@ -423,6 +461,14 @@ function applyIdleBehavior(): void {
       break;
     case 'pause':
       stopCycle();
+      // Drop the dedup cache before the restoring push. Mirrors the
+      // resumeAfterReady pattern: when idleBehavior flips clear→pause
+      // mid-idle while clearActivity's IPC is still in flight, the cache
+      // is stale (clearPresence resets it AFTER its await). Without this,
+      // the useLastWord push hits dedup-skip → returns delivered=true with
+      // no IPC → the in-flight clearActivity then ACKs and lastPayloadJson
+      // is wiped, leaving the user in pause-mode with cleared presence.
+      discord.invalidateDedupCache();
       // Push once so something is visible for the "keep last presence
       // visible" contract. When transitioning from 'clear' to 'pause'
       // mid-idle this restores presence; in other transitions it's
@@ -605,9 +651,20 @@ export function activate(context: vscode.ExtensionContext): void {
         // activeDebugSession yet (timing quirk), and we should still
         // flip debugActive=false.
         const survivor = vscode.debug.activeDebugSession;
-        if (survivor?.id && survivor.id !== session?.id) {
-          activeDebugSessions.add(survivor.id);
-          return;
+        if (survivor) {
+          // Distinguish "real sibling session" from "stale activeDebugSession
+          // that VS Code hasn't nulled yet". Prefer id-equality when ids
+          // exist, fall back to object identity for third-party debug
+          // adapters that don't assign ids — without the fallback, those
+          // adapters would always fail the gate and flip debugActive=false
+          // even mid-session.
+          const isSibling = survivor.id || session?.id
+            ? survivor.id !== session?.id
+            : survivor !== session;
+          if (isSibling) {
+            if (survivor.id) activeDebugSessions.add(survivor.id);
+            return;
+          }
         }
         state.debugActive = false;
         if (config?.enabled) schedulePush();

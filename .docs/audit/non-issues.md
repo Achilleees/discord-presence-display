@@ -170,7 +170,13 @@ reads this file and skips matching patterns in future audits.
 - **Verified:** 2026-05-06 (originally 46-B5 from 2026-05-05 deep audit)
 
 ### `applyIdleBehavior('slow')` engagement push lives at `onWindowStateChange`, not in the idle-behavior switch
-- **Location:** `src/extension.ts:388-394 (onWindowStateChange focus-regain branch)`
+- **Location:** `src/extension.ts:441-445 (onWindowStateChange focus-regain branch)`
 - **Pattern:** Auditors flag that the `case 'slow'` arm of `applyIdleBehavior()` only calls `startCycle()` without pushing fresh presence — the displayed word stays until the next slow tick (up to 120s).
-- **Why it's correct:** Engagement (focus regain) is handled at `onWindowStateChange` line 388-394, which fires `pushImmediate()` and `startCycle()` (now at normal interval, since `state.isIdle = false` is set first and `computeIntervalMs` reads it). The "stale word during idle" period is by design — the user has stepped away. If they want responsive updates while unfocused, they pick `idleBehavior: 'none'`. The switch arm intentionally does not push: the user is not watching at idle entry.
+- **Why it's correct:** Engagement (focus regain) is handled at `onWindowStateChange`'s `else { ... if (state.isIdle) { ... } }` branch, which fires `pushImmediate()` and `startCycle()` (now at normal interval, since `state.isIdle = false` is set first and `computeIntervalMs` reads it). The "stale word during idle" period is by design — the user has stepped away. If they want responsive updates while unfocused, they pick `idleBehavior: 'none'`. The switch arm intentionally does not push: the user is not watching at idle entry.
 - **Verified:** 2026-05-06 (originally 46-B9 from 2026-05-05 deep audit)
+
+### `applyIdleBehavior('clear')` does not reset `state.lastWord`; clear→pause flip restores pre-clear word
+- **Location:** `src/extension.ts:435-438 (applyIdleBehavior 'clear' branch)`
+- **Pattern:** Auditors flag that when `idleBehavior=clear` engages, `state.lastWord` is not cleared. A subsequent `idleBehavior` flip from `clear` to `pause` while still idle re-uses `state.lastWord` via `useLastWord:true`, surfacing the pre-clear word that Discord just had cleared.
+- **Why it's correct:** Matches the README "last presence stays visible" contract for the `pause` semantics — the last delivered word is restored on pause re-engagement. The behavior is codified by the existing test `idleBehavior clear→pause while idle restores presence` at `test/extension.test.ts:333-350`. Auditor itself admits the alternative interpretation is "consistent with README literal reading." Both verifiers in the deep audit (A-B2, 2026-05-06) classified as DISPUTED with the dismiss recommendation.
+- **Verified:** 2026-05-06 (originally A-B2 from 2026-05-06 deep audit)
