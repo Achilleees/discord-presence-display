@@ -2,7 +2,7 @@
   "name": "coding-status-for-discord",
   "displayName": "Coding Status for Discord",
   "description": "Shows what you're working on — language, session time, and a rotating spinner word — as your Discord Rich Presence.",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "license": "MIT",
   "publisher": "Achilleees",
   "author": {
