@@ -222,6 +222,28 @@ describe('computeConfigTransition', () => {
       );
       expect(t.clearLastWord).toBe(true);
     });
+    it('fires when cycleWords flips true→false (P-4 audit 2026-05-06)', () => {
+      // Pairs with clearPinnedWord above so a stale cycling-era word isn't
+      // restored as pinnedWord via the next useLastWord push. Without this,
+      // reverting transitions.ts:87 to `clearLastWord: poolAffectingChanged`
+      // leaves a stale lastWord across the pinned-mode flip.
+      const t = computeConfigTransition(
+        cfg({ cycleWords: true }),
+        cfg({ cycleWords: false }),
+        ACTIVE_CTX,
+      );
+      expect(t.clearLastWord).toBe(true);
+    });
+    it('fires when cycleWords flips false→true (P-4 audit 2026-05-06)', () => {
+      // Symmetric: leaving pinned mode should also drop lastWord so the
+      // resumed cycle picks a fresh word rather than echoing the prior pin.
+      const t = computeConfigTransition(
+        cfg({ cycleWords: false }),
+        cfg({ cycleWords: true }),
+        ACTIVE_CTX,
+      );
+      expect(t.clearLastWord).toBe(true);
+    });
     it('does not fire for unrelated settings', () => {
       const t = computeConfigTransition(
         cfg({ showWorkspace: false }),

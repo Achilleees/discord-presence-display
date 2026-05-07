@@ -189,6 +189,23 @@ describe('buildStateLine', () => {
     const state = baseState({ debugActive: true });
     expect(buildStateLine(state, baseConfig({ smartState: false }))).toBe('Working in TypeScript');
   });
+
+  it('treats the literal string "undefined" as no language (P-9 audit 2026-05-06)', () => {
+    // VS Code can surface the literal string "undefined" as languageId for
+    // unrecognized files. Without the presence.ts:178 filter, this slips
+    // past LANG_DISPLAY/normalizeLang and lands in the title-case fallback,
+    // rendering "Working in Undefined" on Discord.
+    const state = baseState({ currentLanguage: 'undefined' });
+    expect(buildStateLine(state, baseConfig())).toBeUndefined();
+  });
+
+  it('literal "undefined" filter still allows smart triggers (debug)', () => {
+    // The filter only nullifies the language portion — debug/diff/terminal
+    // smart-state branches must still fire because they don't depend on a
+    // resolved language to render their no-language fallback.
+    const state = baseState({ currentLanguage: 'undefined', debugActive: true });
+    expect(buildStateLine(state, baseConfig())).toBe('Debugging');
+  });
 });
 
 describe('buildPresencePayload', () => {
@@ -238,6 +255,16 @@ describe('buildPresencePayload', () => {
 
   it('uses "Powered by Claude Code" tooltip only when there is no language', () => {
     const state = baseState({ currentLanguage: undefined });
+    const p = buildPresencePayload(state, baseConfig(), 'Working');
+    expect(p?.smallImageKey).toBe('claude-logo');
+    expect(p?.smallImageText).toBe('Powered by Claude Code');
+  });
+
+  it('treats literal string "undefined" languageId as no language for icon and tooltip (P-9 audit 2026-05-06)', () => {
+    // Mirror of the buildStateLine filter at presence.ts:234. Without it,
+    // the icon tooltip shows "Undefined" while the state line has no
+    // language — visible inconsistency on the Discord profile.
+    const state = baseState({ currentLanguage: 'undefined' });
     const p = buildPresencePayload(state, baseConfig(), 'Working');
     expect(p?.smallImageKey).toBe('claude-logo');
     expect(p?.smallImageText).toBe('Powered by Claude Code');

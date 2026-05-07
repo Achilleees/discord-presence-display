@@ -91,6 +91,8 @@ import {
   __resetEvents,
   __startDebugSession,
   __endDebugSession,
+  __emitDebugStart,
+  __emitDebugTerminate,
   __setActiveEditor,
   __fireSelectionChange,
   __setActiveTerminal,
@@ -927,6 +929,349 @@ describe('audit 47-E2: recentWords gates on delivered', () => {
     const recentAtPick3 = presenceMocks.pickCalls[2].recent;
     expect(recentAtPick3).toContain('Alpha');
     expect(recentAtPick3).not.toContain('Beta');
+  });
+});
+
+describe('audit 2026-05-06 P-5: applyIdleBehavior(pause) invalidates dedup cache', () => {
+  it('clear→pause mid-idle restoring push fires Discord IPC even when payload matches pre-clear cache', async () => {
+    // Mutation reasoning: revert extension.ts:471 (the
+    // discord.invalidateDedupCache() call). When a slow clearActivity is
+    // still in flight (its lastPayloadJson reset is deferred behind its
+    // own await) and applyIdleBehavior('pause') fires synchronously, the
+    // restoring useLastWord push hits the stale cache → dedup-skips →
+    // returns delivered=true with no IPC → Discord stays in the cleared
+    // state under pause-mode.
+    vi.useFakeTimers();
+    presenceMocks.picker = () => 'Alpha';
+    __setConfig({
+      'claudeSpinner.idleThresholdMinutes': 1,
+      'claudeSpinner.idleBehavior': 'clear',
+    });
+    extension.activate(mkContext() as never);
+    await Promise.resolve();
+    await Promise.resolve();
+    if (instances[0]) instances[0].isConnected = true;
+    const onReady = instances[0].on.mock.calls.find((c: unknown[]) => c[0] === 'ready')![1] as () => void;
+    onReady();
+    await vi.advanceTimersByTimeAsync(100);
+    // Push 1 succeeded with "Alpha". lastPayloadJson now caches the Alpha
+    // payload; state.lastWord = "Alpha".
+    const firstPayload = instances[0].user!.setActivity.mock.calls[0][0] as { details: string };
+    expect(firstPayload.details).toBe('Alpha...');
+
+    // Make clearActivity hang so its post-await `lastPayloadJson = undefined`
+    // never fires. This pins the cache to the pre-clear "Alpha" payload
+    // throughout the upcoming flip.
+    instances[0].user!.clearActivity.mockImplementation(
+      () => new Promise<void>(() => {}),
+    );
+
+    // Engage idle-clear. clearPresence is invoked but its IPC hangs; the
+    // dedup cache stays at the Alpha-payload it had pre-clear.
+    __setFocused(false);
+    await vi.advanceTimersByTimeAsync(60_001);
+    instances[0].user!.setActivity.mockClear();
+    instances[0].request.mockClear();
+
+    // Flip idleBehavior to 'pause' via config change. handleConfigChange's
+    // applyIdleBehavior('pause') invalidates the cache and pushes useLastWord
+    // ("Alpha"). With the fix, the cache is wiped → pushPresence fires
+    // request('SET_ACTIVITY'). Without the fix, the cache still holds the
+    // Alpha payload → dedup-skip → no request → Discord stays cleared.
+    __setConfig({
+      'claudeSpinner.idleThresholdMinutes': 1,
+      'claudeSpinner.idleBehavior': 'pause',
+    });
+    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+    // @ts-expect-error mock module
+    (await import('vscode')).__emitConfigChange(['claudeSpinner']);
+    await vi.advanceTimersByTimeAsync(2_000);
+
+    // The restoring push must have actually called request('SET_ACTIVITY')
+    // — proves the dedup cache was invalidated. Inspect request calls
+    // (not setActivity) because dedup-skip in pushPresence bypasses the
+    // request layer entirely.
+    const setActivityCalls = instances[0].request.mock.calls.filter(
+      (c: unknown[]) => c[0] === 'SET_ACTIVITY',
+    );
+    expect(setActivityCalls.length).toBeGreaterThanOrEqual(1);
+    const restorePayload = (setActivityCalls[0][1] as { activity: { details: string } }).activity;
+    expect(restorePayload.details).toBe('Alpha...');
+  });
+});
+
+describe('audit 2026-05-06 P-10: hybrid id+identity debug-session survivor check', () => {
+  it('keeps debugActive=true when both terminating and survivor sessions lack ids (third-party adapter)', async () => {
+    // Mutation reasoning: simplify extension.ts:661 to `survivor.id !== session?.id`.
+    // When a third-party debug adapter emits sessions without ids, both
+    // survivor.id and session?.id are undefined → the simplified check
+    // returns false → isSibling=false → debugActive flips false even though
+    // the survivor is a real running session.
+    vi.useFakeTimers();
+    extension.activate(mkContext() as never);
+    await Promise.resolve();
+    await Promise.resolve();
+    if (instances[0]) instances[0].isConnected = true;
+    const onReady = instances[0].on.mock.calls.find((c: unknown[]) => c[0] === 'ready')![1] as () => void;
+    onReady();
+    await vi.advanceTimersByTimeAsync(100);
+
+    // Step 1: drive debugActive=true via an id-having session A. Without
+    // this seed the bug never manifests because debugActive starts false.
+    __startDebugSession('session-a');
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    // Step 2: introduce a no-id sibling B. The start handler doesn't add
+    // it to the tracked set (no id), so debugActive stays driven by A.
+    const sessionB = {}; // no id
+    __emitDebugStart(sessionB);
+    await vi.advanceTimersByTimeAsync(100);
+
+    // Step 3: terminate A. Set drains → size===0 block runs. Survivor = B
+    // (no id, set as activeDebugSession by __emitDebugStart), session = A
+    // (id present). The id-check branch fires (`survivor.id || session?.id`
+    // is truthy via session.id "session-a"), so isSibling=true and B's
+    // identity is preserved as the running survivor. activeDebugSessions
+    // gets nothing added (B has no id), but state.debugActive stays true.
+    __emitDebugTerminate({ id: 'session-a' }, { activeOverride: sessionB });
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    // Step 4: introduce a third no-id session C as the new active. C and
+    // B are different objects (real sibling). Both have no ids.
+    const sessionC = {}; // no id, distinct identity from B
+
+    // Step 5: terminate B (no id). session?.id is undefined; survivor
+    // (vscode.debug.activeDebugSession) is C, also no id. With the fix,
+    // the identity-fallback branch fires: C !== B → isSibling=true →
+    // debugActive stays true. With the mutation, undefined !== undefined
+    // returns false → debugActive flips false.
+    instances[0].user!.setActivity.mockClear();
+    __emitDebugTerminate(sessionB, { activeOverride: sessionC });
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    // Push a fresh editor change so we observe the latest debug state.
+    __setActiveEditor({ document: { languageId: 'typescript' } });
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    // The pushed payload's state line must still indicate "Debugging" —
+    // proves debugActive remained true through the no-id terminate.
+    const latest = instances[0].user!.setActivity.mock.calls.at(-1)?.[0] as { state?: string };
+    expect(latest?.state).toContain('Debugging');
+  });
+});
+
+describe('audit 2026-05-06 P-7: focus regain flips lastInteractedSource back to editor', () => {
+  it('alt-tab back to VS Code with editor focused immediately surfaces the language, not "In the terminal"', async () => {
+    // Mutation reasoning: revert extension.ts:437-440. Without the focus-
+    // regain reset of lastInteractedSource, alt-tab back into VS Code with
+    // an active editor shows "In the terminal" until the next selection
+    // event because lastInteractedSource stays at 'terminal'.
+    vi.useFakeTimers();
+    __setConfig({ 'claudeSpinner.cycleSpeed': 10 });
+    extension.activate(mkContext() as never);
+    await Promise.resolve();
+    await Promise.resolve();
+    if (instances[0]) instances[0].isConnected = true;
+    // Fire onReady so the cycle interval is armed — the next push will
+    // observe the post-focus-regain lastInteractedSource via cycle tick.
+    const onReady = instances[0].on.mock.calls.find((c: unknown[]) => c[0] === 'ready')![1] as () => void;
+    onReady();
+    await vi.advanceTimersByTimeAsync(100);
+
+    // Establish the terminal-focused starting state.
+    __setActiveEditor({ document: { languageId: 'rust' } });
+    __setActiveTerminal({ name: 'bash' });
+    await vi.advanceTimersByTimeAsync(1_000);
+    const terminalLine = instances[0].user!.setActivity.mock.calls.at(-1)?.[0] as { state?: string };
+    expect(terminalLine?.state).toBe('In the terminal');
+
+    // VS Code loses focus (alt-tab away). Stay under the idle threshold so
+    // we exercise the focus-regain branch, not the unrelated idle path.
+    __setFocused(false);
+    await vi.advanceTimersByTimeAsync(100);
+    instances[0].user!.setActivity.mockClear();
+
+    // Regain focus. activeTextEditor is still the rust file; with the fix,
+    // onWindowStateChange flips lastInteractedSource back to 'editor' so
+    // the next cycle tick surfaces "Working in Rust" rather than echoing
+    // the pre-blur "In the terminal".
+    __setFocused(true);
+    await vi.advanceTimersByTimeAsync(100);
+    // Advance one cycleSpeed so the cycle tick fires.
+    await vi.advanceTimersByTimeAsync(11_000);
+    expect(instances[0].user!.setActivity.mock.calls.length).toBeGreaterThanOrEqual(1);
+    const latest = instances[0].user!.setActivity.mock.calls.at(-1)?.[0] as { state?: string };
+    expect(latest?.state).toBe('Working in Rust');
+    expect(latest?.state).not.toBe('In the terminal');
+  });
+});
+
+describe('audit 2026-05-06 P-6: per-push state.workspaceName re-read', () => {
+  it('in-place workspace folder rename without folders-change event surfaces on next cycle push', async () => {
+    // Mutation reasoning: revert extension.ts:119 (`state.workspaceName =
+    // getWorkspaceName()` inside pushImmediate). The existing workspace
+    // tests refresh through onDidChangeActiveTextEditor / onDidChangeWorkspaceFolders
+    // handlers; this scenario triggers neither — only the per-push re-read
+    // can observe the mutated folder name.
+    vi.useFakeTimers();
+    __setConfig({
+      'claudeSpinner.showWorkspace': true,
+      'claudeSpinner.cycleSpeed': 10,
+    });
+    (mockWorkspace as unknown as {
+      workspaceFolders: { name: string; uri: { fsPath: string } }[] | undefined;
+    }).workspaceFolders = [{ name: 'alpha', uri: { fsPath: '/repo' } }];
+    extension.activate(mkContext() as never);
+    await Promise.resolve();
+    await Promise.resolve();
+    if (instances[0]) instances[0].isConnected = true;
+    __setActiveEditor({ document: { languageId: 'typescript', uri: { fsPath: '/repo/src/app.ts' } } });
+    const onReady = instances[0].on.mock.calls.find((c: unknown[]) => c[0] === 'ready')![1] as () => void;
+    onReady();
+    await vi.advanceTimersByTimeAsync(100);
+    const initialPayload = instances[0].user!.setActivity.mock.calls.at(-1)?.[0] as { state?: string };
+    expect(initialPayload?.state).toBe('Working in TypeScript — alpha');
+
+    // Mutate the folder name in place — simulating an external rename of
+    // the .code-workspace `name` field. No __fireWorkspaceFoldersChange,
+    // no __setActiveEditor — neither handler fires, so only the per-push
+    // re-read at extension.ts:119 can observe this.
+    (mockWorkspace as unknown as {
+      workspaceFolders: { name: string; uri: { fsPath: string } }[];
+    }).workspaceFolders[0].name = 'beta';
+    instances[0].user!.setActivity.mockClear();
+
+    // Advance one cycleSpeed — the cycle tick fires pushImmediate which,
+    // with the fix, re-resolves the workspace name to 'beta'.
+    await vi.advanceTimersByTimeAsync(11_000);
+    expect(instances[0].user!.setActivity.mock.calls.length).toBeGreaterThanOrEqual(1);
+    const renamed = instances[0].user!.setActivity.mock.calls.at(-1)?.[0] as { state?: string };
+    expect(renamed?.state).toBe('Working in TypeScript — beta');
+  });
+});
+
+describe('audit 2026-05-06 P-2: pushImmediate post-await !config.enabled guard', () => {
+  it('shutdown during in-flight push does not re-populate state.lastWord/recentWords/pinnedWord', async () => {
+    // Mutation reasoning: revert extension.ts:147 (`if (!config.enabled) return;`
+    // after the await). A slow setActivity that resolves AFTER handleConfigChange
+    // wiped those fields would otherwise re-populate them via lines 169-171,
+    // and a re-enable would surface the stale pre-disable word.
+    vi.useFakeTimers();
+    presenceMocks.picker = () => 'PreDisable';
+    extension.activate(mkContext() as never);
+    await Promise.resolve();
+    await Promise.resolve();
+    if (instances[0]) instances[0].isConnected = true;
+
+    // Make setActivity hang so the push holds the mutex while we shutdown.
+    let resolvePush: (() => void) | undefined;
+    instances[0].user!.setActivity.mockImplementation(
+      () => new Promise<void>((r) => { resolvePush = r; }),
+    );
+
+    // Fire the in-flight push via onReady.
+    const onReady = instances[0].on.mock.calls.find((c: unknown[]) => c[0] === 'ready')![1] as () => void;
+    onReady();
+    await Promise.resolve();
+    expect(instances[0].user!.setActivity).toHaveBeenCalledTimes(1);
+
+    // While the push hangs, fire a config-change to disable the extension.
+    // handleConfigChange's shutdown branch synchronously clears lastWord,
+    // recentWords, and pinnedWord (extension.ts:509-522).
+    __setConfig({ 'claudeSpinner.enabled': false });
+    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+    // @ts-expect-error mock module
+    (await import('vscode')).__emitConfigChange(['claudeSpinner']);
+    await Promise.resolve();
+
+    // Now resolve the in-flight push. Its post-await guard at line 147
+    // must observe !config.enabled and bail before lines 169-171 touch state.
+    instances[0].user!.setActivity.mockImplementation(() => Promise.resolve());
+    resolvePush!();
+    await vi.advanceTimersByTimeAsync(100);
+
+    // Re-enable. A subsequent push should pick a fresh word — not echo
+    // PreDisable (which is what would happen if the post-await guard was
+    // missing and lastWord was re-populated despite the shutdown).
+    presenceMocks.picker = () => 'PostEnable';
+    __setConfig({ 'claudeSpinner.enabled': true });
+    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+    // @ts-expect-error mock module
+    (await import('vscode')).__emitConfigChange(['claudeSpinner']);
+    await Promise.resolve();
+    await Promise.resolve();
+    // A fresh client was created on reconnect; grab the latest one.
+    const fresh = instances[instances.length - 1];
+    fresh.isConnected = true;
+    fresh.user!.setActivity.mockClear();
+    const freshOnReady = fresh.on.mock.calls.find((c: unknown[]) => c[0] === 'ready')![1] as () => void;
+    freshOnReady();
+    await vi.advanceTimersByTimeAsync(100);
+
+    // The post-enable push must use the fresh picker — proves shutdown
+    // really did clear lastWord and the in-flight push's post-await
+    // guard didn't re-populate it.
+    expect(fresh.user!.setActivity.mock.calls.length).toBeGreaterThanOrEqual(1);
+    const postEnable = fresh.user!.setActivity.mock.calls[0][0] as { details: string };
+    expect(postEnable.details).toBe('PostEnable...');
+    expect(postEnable.details).not.toBe('PreDisable...');
+  });
+});
+
+describe('audit 2026-05-06 P-1: pause clears lastWord so post-reconnect resume picks fresh', () => {
+  it('pause→disconnect→resume→reconnect emits a freshly picked word, not the pre-pause word', async () => {
+    // Mutation reasoning: revert extension.ts:386 (`state.lastWord = undefined`
+    // in togglePaused.pause). Without it, lastWord stays at "Alpha" through
+    // pause+disconnect, and resumeAfterReady's useLastWord push re-emits
+    // "Alpha" — violating the README "Resume → fresh" contract.
+    vi.useFakeTimers();
+    // Seed picker with two distinct words so we can prove the resume path
+    // didn't echo the pre-pause one.
+    const sequence = ['Alpha', 'Beta'];
+    let pickIdx = 0;
+    presenceMocks.picker = () => sequence[Math.min(pickIdx++, sequence.length - 1)];
+
+    extension.activate(mkContext() as never);
+    await Promise.resolve();
+    await Promise.resolve();
+    if (instances[0]) instances[0].isConnected = true;
+
+    // Push 1: onReady delivers "Alpha", state.lastWord = "Alpha".
+    const onReady = instances[0].on.mock.calls.find((c: unknown[]) => c[0] === 'ready')![1] as () => void;
+    onReady();
+    await vi.advanceTimersByTimeAsync(100);
+    const firstPayload = instances[0].user!.setActivity.mock.calls[0][0] as { details: string };
+    expect(firstPayload.details).toBe('Alpha...');
+
+    // Pause via toggle. With the fix, state.lastWord is wiped here.
+    const toggle = __getRegisteredCommand('claudeSpinner.toggle')!;
+    toggle();
+    await Promise.resolve();
+
+    // Simulate Discord disconnect — pushImmediate's discord.isReady() guard
+    // bails on any push during the disconnected window, so toggle resume
+    // can't update state.lastWord while the IPC pipe is down.
+    instances[0].isConnected = false;
+    instances[0].user!.setActivity.mockClear();
+
+    // Resume via toggle while disconnected. pushImmediate enters but
+    // discord.isReady() returns false, so no setActivity fires and
+    // state.lastWord is not touched here.
+    toggle();
+    await vi.advanceTimersByTimeAsync(100);
+    expect(instances[0].user!.setActivity.mock.calls.length).toBe(0);
+
+    // Reconnect: re-flip isConnected and fire onReady. resumeAfterReady
+    // calls pushImmediate({ useLastWord: true }) — with the fix it falls
+    // through to a fresh pickCandidateWord (yielding "Beta"); without it
+    // it would echo "Alpha".
+    instances[0].isConnected = true;
+    onReady();
+    await vi.advanceTimersByTimeAsync(100);
+    expect(instances[0].user!.setActivity.mock.calls.length).toBeGreaterThanOrEqual(1);
+    const resumed = instances[0].user!.setActivity.mock.calls[0][0] as { details: string };
+    expect(resumed.details).toBe('Beta...');
+    expect(resumed.details).not.toBe('Alpha...');
   });
 });
 

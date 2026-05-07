@@ -122,6 +122,25 @@ export function __endDebugSession(id?: string, opts: { keepActiveStale?: boolean
   for (const listener of debugEndListeners) listener(session);
 }
 
+// Surface the raw debug-session emit path so tests can simulate third-
+// party adapters that don't assign session ids — extension.ts:661-667
+// has a fallback to object-identity when ids are absent, and there's
+// no way to exercise that branch through __startDebugSession alone.
+export function __emitDebugStart(session: object): void {
+  (debug as unknown as { activeDebugSession: unknown }).activeDebugSession = session;
+  for (const listener of debugStartListeners) listener(session as { id: string });
+}
+
+export function __emitDebugTerminate(
+  session: object,
+  opts: { activeOverride?: object | undefined } = {},
+): void {
+  if ('activeOverride' in opts) {
+    (debug as unknown as { activeDebugSession: unknown }).activeDebugSession = opts.activeOverride;
+  }
+  for (const listener of debugEndListeners) listener(session as { id: string });
+}
+
 export const window = {
   activeTextEditor: undefined as
     | { document: { languageId: string; uri?: { fsPath: string } } }
