@@ -5,6 +5,47 @@ All notable changes to Coding Status for Discord will be documented in this file
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.2] - 2026-05-06
+
+A polish release closing the seams found by two days of intensive auditing — 23 confirmed bugs fixed across multi-root workspace handling, reconnect/idle-pause continuity, the anti-duplicate ring buffer, and a handful of platform-specific edge cases. Test suite grew from 170 → 214 to lock in regressions.
+
+### Fixed
+
+- **Multi-root workspace folder name no longer leaks** — `state.workspaceName` now refreshes on active editor changes (was stuck at the activation-time folder name) and on in-place `.code-workspace` renames. The privacy fix promised in code comments now actually works.
+- **Reconnect during idle-pause restores the same visible word** — Discord disconnect/reconnect mid-pause used to surface a fresh random word; now honors the README "last presence stays visible" contract via cache invalidation at the reconnect boundary.
+- **Cycling-mode anti-duplicate ring is no longer polluted on dedup hits** — `RingBuffer.add` now skips back-to-back duplicates, restoring full anti-repeat protection after every reconnect.
+- **`clear → pause` mid-idle no longer leaves Discord blank** — flipping `idleBehavior` from `clear` to `pause` while a `clearActivity` IPC was still in flight could leave Discord cleared until next focus regain. Cache is now explicitly invalidated before the restore push.
+- **`state.lastWord` cleared on relevant transitions** — togglePaused.pause, `cycleWords` mode flip, and pool-affecting config changes now all clear the last-word cache so a subsequent `useLastWord` push can't surface a word that was just removed from the pool.
+- **Cycling mode commits to the recent-ring only on confirmed delivery** — symmetric with pinned mode. Failed IPC writes no longer burn slots in the anti-repeat ring on words Discord never saw.
+- **Linux multi-user instance lock no longer deadlocks** — `os.tmpdir()` resolves to `/tmp` on Linux (shared across users); the lock directory is now scoped per OS user so two users on one host don't fight for one lock.
+- **Custom-words removal during idle no longer surfaces a stale word** — disable → edit `customWords` → re-enable now correctly drops the cached last-word.
+- **`lastInteractedSource` resets on focus regain** — alt-tabbing back into VS Code with the editor focused no longer leaves Discord stuck at "In the terminal" until the first keystroke.
+- **Multi-window handoff respects the idle threshold** — when a secondary VS Code window acquires the lock from a closed primary, the focus-state-driven idle update no longer skips the configured threshold gate.
+- **Debug session terminate handling tolerates adapters without session ids** — third-party debug adapters that omit `session.id` no longer cause `state.debugActive` to flip to false while debugging is still active.
+- **Literal `"undefined"` languageId no longer renders as `Working in Undefined`** — exotic third-party language extensions that assign the literal string `"undefined"` are now collapsed to the language-less display.
+- **In-flight push completing post-shutdown no longer re-populates state** — disabling the extension while a cycle tick's IPC ACK was in flight could undo the shutdown's `state.lastWord` clear, leaking a stale word into the next enable. New `!config.enabled` post-await guard closes the race.
+- **`pushDirty*` flags symmetrically reset on togglePaused** — the resume branch now mirrors the pause branch's defensive reset; closes a defense-in-depth gap that wasn't triggerable today but pre-empts future regressions.
+
+### Privacy / packaging
+
+- **VSIX bundle no longer ships internal files** — `1.0.0` and `1.0.1` accidentally bundled `.github/workflows/publish.yml` and `submission/marketplace-email.md` (a draft of internal Microsoft correspondence). `.vscodeignore` now excludes both. Bundle is 8 files, ~354 KB — down from 10 files.
+
+### Changed
+
+- **`pushImmediate` post-await guards** now include `!config.enabled` (mirrors the existing `paused` and `idle-clear` guards). State commits after the IPC await no longer survive a shutdown that fired during the roundtrip.
+- **`computeConfigTransition` clears `lastWord`** on `cycleWords true→false` (joins the existing `customWords`/`wordRarity`/`timeBasedPools` pool-affecting triggers).
+- **Debug session survivor check** uses a hybrid id-equality + object-identity strategy — preserves correctness for first-party adapters (which assign ids) and works for third-party adapters that don't.
+
+### Documentation
+
+- **`showElapsedTime` semantics documented** — README now explicitly states the timer counts from VS Code session start (not extension enable/disable cycles).
+- **README catchphrase restored** at the top.
+
+### Internal
+
+- **Test suite grew from 170 → 214** (44 new tests). New `test/state.test.ts` covers `RingBuffer.add` directly; `test/instance-lock.test.ts` covers FS-race recovery (previously zero coverage on 165 LOC); `test/discord-client.test.ts` now inspects the actual SET_ACTIVITY wire payload via `request.mock.calls` instead of the bridging mock that masked it.
+- **Audit registry consolidated** — `.docs/audit/{NON-ISSUES,DECISIONS,KNOWN-BUGS}.md` are now uppercase per canonical spec; added `.docs/{OVERVIEW,CONVENTIONS}.md` scaffolding and a project-level `CLAUDE.md`.
+
 ## [1.0.1] - 2026-05-01
 
 ### Changed

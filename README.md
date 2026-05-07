@@ -1,5 +1,7 @@
 # Coding Status for Discord
 
+*Your Discord status, now Flibbertigibbeting.*
+
 **Show what you're working on — at a glance, on Discord.**
 
 A VS Code extension that turns your editor activity into Discord Rich Presence: the language you're in, the time you've been at it, and a rotating spinner word borrowed from Claude Code's loading animation — so your status reads `Cogitating...`, `Moonwalking...`, or the occasional `Flibbertigibbeting...` while you code.
