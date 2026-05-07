@@ -123,9 +123,10 @@ export function __endDebugSession(id?: string, opts: { keepActiveStale?: boolean
 }
 
 // Surface the raw debug-session emit path so tests can simulate third-
-// party adapters that don't assign session ids — extension.ts:661-667
-// has a fallback to object-identity when ids are absent, and there's
-// no way to exercise that branch through __startDebugSession alone.
+// party adapters that don't assign session ids — onDidTerminateDebugSession
+// in extension.ts has a fallback to object-identity when ids are absent
+// (the `survivor.id || session?.id ? id-equality : object-identity` ternary),
+// and there's no way to exercise that branch through __startDebugSession alone.
 export function __emitDebugStart(session: object): void {
   (debug as unknown as { activeDebugSession: unknown }).activeDebugSession = session;
   for (const listener of debugStartListeners) listener(session as { id: string });
