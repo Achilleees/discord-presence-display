@@ -149,6 +149,12 @@ reads this file and skips matching patterns in future audits.
 - **Why it's correct:** `release.sh` builds a VSIX via `vsce package`, attaches it to the GitHub Release via `gh release create`, then deletes it via `rm -f "$VSIX"` on line 68. If the script is interrupted or the VSIX is rebuilt locally, the file may remain. `git status --ignored` confirms the file is properly ignored — it's a build artifact, not committed content. Safe to delete manually whenever it shows up.
 - **Verified:** 2026-05-05
 
+### Doubly-nested archive at `assets/archive/icon-candidates/archive/` is acceptable disk-only iteration history (DISPUTED)
+- **Location:** `assets/archive/icon-candidates/archive/` — ~42 SVG files of icon iteration history
+- **Pattern:** Scanner flags the doubled-archive directory structure as a cleanup candidate. Both layers are gitignored via the parent `assets/archive/` entry; cost is purely disk-side on local clones.
+- **Why it's disputed (not a clear non-issue):** Verified via `git status --ignored` that the entire `assets/archive/` tree is gitignored, so VCS storage is zero. The `icon-candidates/archive/` nesting is a deliberate "really, this time, don't look here" intent — the user already archived the iteration history twice. Per the canonical spec's `.archive/` rule (*"Agents must never read these"*), this is intentionally invisible to skills. However, the scanner is correct that it's *unusual* — a single archive level would suffice, and ~800 KB of orphaned SVGs travels with every clone-with-ignored-files (or robocopy) of the project. Whether to flatten or drop is a judgment call: harmless to git, mildly wasteful on disk, possibly meaningful as deliberate iteration history. Scanner correctly tagged as SUGGESTION; no action required unless reorganizing assets directory.
+- **Verified:** 2026-05-06 (DISPUTED — kept as-is by default; scanner should not re-flag at higher than SUGGESTION tier)
+
 ### Disable→enable corrupt-lock-file race during the disabled-period gap
 - **Location:** `src/instance-lock.ts — acquireOrWatch() + release() in handleConfigChange.shutdown`
 - **Pattern:** Auditor flagged that toggling `claudeSpinner.enabled` off then on rapidly could hit a corrupt-lock-file race window between `release()` and the next `acquireOrWatch()`.
@@ -170,13 +176,21 @@ reads this file and skips matching patterns in future audits.
 - **Verified:** 2026-05-06 (originally 46-B5 from 2026-05-05 deep audit)
 
 ### `applyIdleBehavior('slow')` engagement push lives at `onWindowStateChange`, not in the idle-behavior switch
-- **Location:** `src/extension.ts:441-445 (onWindowStateChange focus-regain branch)`
+- **Location:** `src/extension.ts — onWindowStateChange focus-regain branch (the else { ... if (state.isIdle) { ... } } block)`
 - **Pattern:** Auditors flag that the `case 'slow'` arm of `applyIdleBehavior()` only calls `startCycle()` without pushing fresh presence — the displayed word stays until the next slow tick (up to 120s).
 - **Why it's correct:** Engagement (focus regain) is handled at `onWindowStateChange`'s `else { ... if (state.isIdle) { ... } }` branch, which fires `pushImmediate()` and `startCycle()` (now at normal interval, since `state.isIdle = false` is set first and `computeIntervalMs` reads it). The "stale word during idle" period is by design — the user has stepped away. If they want responsive updates while unfocused, they pick `idleBehavior: 'none'`. The switch arm intentionally does not push: the user is not watching at idle entry.
-- **Verified:** 2026-05-06 (originally 46-B9 from 2026-05-05 deep audit)
+- **Verified:** 2026-05-06 (originally 46-B9 from 2026-05-05 deep audit; symbol-anchored 2026-05-06 to survive churn)
 
 ### `applyIdleBehavior('clear')` does not reset `state.lastWord`; clear→pause flip restores pre-clear word
-- **Location:** `src/extension.ts:435-438 (applyIdleBehavior 'clear' branch)`
+- **Location:** `src/extension.ts — applyIdleBehavior 'clear' case body`
 - **Pattern:** Auditors flag that when `idleBehavior=clear` engages, `state.lastWord` is not cleared. A subsequent `idleBehavior` flip from `clear` to `pause` while still idle re-uses `state.lastWord` via `useLastWord:true`, surfacing the pre-clear word that Discord just had cleared.
-- **Why it's correct:** Matches the README "last presence stays visible" contract for the `pause` semantics — the last delivered word is restored on pause re-engagement. The behavior is codified by the existing test `idleBehavior clear→pause while idle restores presence` at `test/extension.test.ts:333-350`. Auditor itself admits the alternative interpretation is "consistent with README literal reading." Both verifiers in the deep audit (A-B2, 2026-05-06) classified as DISPUTED with the dismiss recommendation.
-- **Verified:** 2026-05-06 (originally A-B2 from 2026-05-06 deep audit)
+- **Why it's correct:** Matches the README "last presence stays visible" contract for the `pause` semantics — the last delivered word is restored on pause re-engagement. The behavior is codified by the existing test `idleBehavior clear→pause while idle restores presence` in `test/extension.test.ts`. Auditor itself admits the alternative interpretation is "consistent with README literal reading." Both verifiers in the deep audit (A-B2, 2026-05-06) classified as DISPUTED with the dismiss recommendation.
+- **Verified:** 2026-05-06 (originally A-B2 from 2026-05-06 deep audit; symbol-anchored 2026-05-06 to survive churn)
+
+## Registry Hygiene Patterns
+
+### Symbol-anchored locations are preferred over `file:line` ranges
+- **Location:** All non-issue entries
+- **Pattern:** Janitor scanner flags non-issue entries whose `Location` field uses `file.ts:N-M` line ranges that have drifted from current code (e.g., a function that's moved 50 lines down due to upstream churn).
+- **Why it's correct (and what to do):** Line-anchored references degrade with every commit that touches the file. The canonical fix is to switch to symbol-anchored references like `src/extension.ts — applyIdleBehavior 'clear' branch` or `test/extension.test.ts — clear→pause restores presence test`. Most existing entries already follow this pattern; the line-anchored ones are technical debt from earlier audit rounds and should be migrated opportunistically when refreshing other entries in the same file. Janitor SHOULD continue to flag drifted line numbers as CLEAN-UP findings even though the underlying patterns are sanctioned non-issues — the drift itself is a maintenance defect distinct from whether the pattern is a real issue.
+- **Verified:** 2026-05-06
