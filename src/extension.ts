@@ -139,11 +139,12 @@ async function pushImmediate(
     // Guard against deactivate racing with an in-flight push.
     if (!state || !config) return;
 
-    // If config.enabled flipped to false during the IPC roundtrip (shutdown
-    // via handleConfigChange synchronously cleared lastWord/recentWords/
-    // pinnedWord at line 471/501-502), committing a delivered=true here
-    // would re-populate state with the very fields the shutdown branch just
-    // wiped. The next re-enable would then surface a stale pre-disable word.
+    // If config.enabled flipped to false during the IPC roundtrip,
+    // handleConfigChange's shutdown branch synchronously cleared
+    // state.lastWord. Committing a delivered=true here would re-populate
+    // lastWord with a pre-disable word, and the next re-enable's
+    // useLastWord short-circuit in pushImmediate would surface it instead
+    // of a freshly picked one.
     if (!config.enabled) return;
 
     // If idle-clear engaged between our pick and the push (another handler
@@ -381,8 +382,11 @@ function togglePaused(): void {
     pushDirtyUseLastWord = false;
     // Clear lastWord so a later resume path (specifically: pause →
     // disconnect → toggle resume → reconnect → resumeAfterReady's
-    // useLastWord push) doesn't re-emit the pre-pause word. README's
-    // "Resume → fresh" contract requires a freshly picked word post-pause.
+    // useLastWord push) falls through to a fresh pickCandidateWord rather
+    // than resurrecting the pre-pause word. Mirrors the resume branch's
+    // intent below (plan §Commands "Resume: pushes fresh, restarts
+    // interval.") for the cycling-mode path; pinned-mode resume
+    // intentionally returns the pinnedWord, which is preserved here.
     state.lastWord = undefined;
     void discord.clearPresence();
   } else {
@@ -429,11 +433,16 @@ function onWindowStateChange(): void {
     }
   } else {
     clearIdleTimer();
-    // On focus regain, if the active tab is a real text editor (not a
-    // terminal-tab-input), flip lastInteractedSource back to 'editor'. Alt-
-    // tabbing back into VS Code with the editor focused fires no selection
-    // change, so 'terminal' would otherwise stay stuck until the first
-    // keystroke and surface "In the terminal" on the status line.
+    // On focus regain, if any text editor is currently active
+    // (`activeTextEditor` stays sticky while the terminal panel is focused,
+    // so this is a heuristic — VS Code does not expose which panel actually
+    // owns focus), assume the user is back in the editor and flip
+    // lastInteractedSource to 'editor'. Alt-tabbing back into VS Code with
+    // the editor focused fires no selection change, so 'terminal' would
+    // otherwise stay stuck until the first keystroke and surface "In the
+    // terminal" on the status line. The asymmetric edge case (alt-tab back
+    // with terminal still focused) is documented in NON-ISSUES.md as a
+    // heuristic trade-off; recovery is automatic on the next terminal change.
     if (vscode.window.activeTextEditor) {
       lastInteractedSource = 'editor';
       state.focusContext = computeFocusContext();

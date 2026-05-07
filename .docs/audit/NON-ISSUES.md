@@ -187,6 +187,20 @@ reads this file and skips matching patterns in future audits.
 - **Why it's correct:** Matches the README "last presence stays visible" contract for the `pause` semantics — the last delivered word is restored on pause re-engagement. The behavior is codified by the existing test `idleBehavior clear→pause while idle restores presence` in `test/extension.test.ts`. Auditor itself admits the alternative interpretation is "consistent with README literal reading." Both verifiers in the deep audit (A-B2, 2026-05-06) classified as DISPUTED with the dismiss recommendation.
 - **Verified:** 2026-05-06 (originally A-B2 from 2026-05-06 deep audit; symbol-anchored 2026-05-06 to survive churn)
 
+### `lastInteractedSource` not reset in `deactivate()` is acceptable because `activate()` always re-seeds
+- **Location:** `src/extension.ts — deactivate() and activate() lastInteractedSource handling`
+- **Pattern:** Auditor (B5, 2026-05-06) flagged that `deactivate()` doesn't reset the module-level `lastInteractedSource` variable, breaking symmetry with `state`/`config`/timer/`activeDebugSessions` resets.
+- **Why it's correct:** `activate()` unconditionally re-seeds `lastInteractedSource` from current focus state on every activation (the `if (!vscode.window.activeTextEditor && vscode.window.activeTerminal) { lastInteractedSource = 'terminal'; } else { lastInteractedSource = 'editor'; }` block). The variable's only reader is `computeFocusContext()`, which itself bails on `!state` so it cannot run between deactivate and activate. In production, deactivate runs at VS Code shutdown / extension uninstall, after which the module is unloaded. In tests, every test's activate() re-seeds before any focus computation. Auditor itself admits "No production manifestation. ... Currently invisible." This is a defensive-hygiene preference, not a bug.
+- **Verified:** 2026-05-06 (originally B5 from 2026-05-06 verifier; symbol-anchored)
+
+### `lastInteractedSource = 'editor'` flip on focus-regain and active-editor-change is a heuristic trade-off
+- **Location:** `src/extension.ts — onWindowStateChange focus-regain branch (line 437-440) AND onDidChangeActiveTextEditor handler (line 597)`
+- **Pattern:** Auditor (B1+E1, 2026-05-06) flagged that both call sites unconditionally flip `lastInteractedSource = 'editor'` when an editor is active. Two trigger surfaces:
+  - **B1 (focus regain):** Alt-tab back into VS Code with terminal panel still focused → flips to 'editor', surfaces "Working in X" instead of "In the terminal" until next terminal change.
+  - **E1 (programmatic editor surface):** Third-party extension calling `vscode.window.showTextDocument(uri, { preserveFocus: true })` while user is in terminal panel → same incorrect flip via `onDidChangeActiveTextEditor`.
+- **Why it's correct (heuristic trade-off, not a bug):** The fix at A-E3 (commit fb6c393, 2026-05-06) deliberately made this trade. The pre-fix behavior had the symmetric problem: alt-tab back to VS Code with editor focused but `lastInteractedSource='terminal'` left over → status stuck at "In the terminal" until next selection event. VS Code does not expose which panel currently has focus, so neither heuristic is universally correct. The fix author chose to favor the more common scenario (alt-tab back to editor) over the rarer one (alt-tab back with terminal focused). The test at `test/extension.test.ts — audit 2026-05-06 P-7: focus regain flips lastInteractedSource back to editor` codifies the post-fix behavior as intended. Recovery is automatic on next `onDidChangeActiveTerminal` event. The B1+E1 auditor admits: "a 'fix' here is really a design choice, not a defect" and "The current trade-off favors the more common scenario." Re-fixing via a stricter `!vscode.window.activeTerminal` gate would resurrect a different version of A-E3.
+- **Verified:** 2026-05-06 (B1+E1 from 2026-05-06 verifier; documented trade-off)
+
 ## Registry Hygiene Patterns
 
 ### Symbol-anchored locations are preferred over `file:line` ranges

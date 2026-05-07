@@ -934,7 +934,7 @@ describe('audit 47-E2: recentWords gates on delivered', () => {
 
 describe('audit 2026-05-06 P-5: applyIdleBehavior(pause) invalidates dedup cache', () => {
   it('clear→pause mid-idle restoring push fires Discord IPC even when payload matches pre-clear cache', async () => {
-    // Mutation reasoning: revert extension.ts:471 (the
+    // Mutation reasoning: revert extension.ts:480 (the
     // discord.invalidateDedupCache() call). When a slow clearActivity is
     // still in flight (its lastPayloadJson reset is deferred behind its
     // own await) and applyIdleBehavior('pause') fires synchronously, the
@@ -1062,7 +1062,7 @@ describe('audit 2026-05-06 P-10: hybrid id+identity debug-session survivor check
 
 describe('audit 2026-05-06 P-7: focus regain flips lastInteractedSource back to editor', () => {
   it('alt-tab back to VS Code with editor focused immediately surfaces the language, not "In the terminal"', async () => {
-    // Mutation reasoning: revert extension.ts:437-440. Without the focus-
+    // Mutation reasoning: revert extension.ts:446-449. Without the focus-
     // regain reset of lastInteractedSource, alt-tab back into VS Code with
     // an active editor shows "In the terminal" until the next selection
     // event because lastInteractedSource stays at 'terminal'.
@@ -1152,9 +1152,9 @@ describe('audit 2026-05-06 P-6: per-push state.workspaceName re-read', () => {
 
 describe('audit 2026-05-06 P-2: pushImmediate post-await !config.enabled guard', () => {
   it('shutdown during in-flight push does not re-populate state.lastWord/recentWords/pinnedWord', async () => {
-    // Mutation reasoning: revert extension.ts:147 (`if (!config.enabled) return;`
+    // Mutation reasoning: revert extension.ts:148 (`if (!config.enabled) return;`
     // after the await). A slow setActivity that resolves AFTER handleConfigChange
-    // wiped those fields would otherwise re-populate them via lines 169-171,
+    // wiped state.lastWord would otherwise re-populate it via lines 170-172,
     // and a re-enable would surface the stale pre-disable word.
     vi.useFakeTimers();
     presenceMocks.picker = () => 'PreDisable';
@@ -1176,16 +1176,16 @@ describe('audit 2026-05-06 P-2: pushImmediate post-await !config.enabled guard',
     expect(instances[0].user!.setActivity).toHaveBeenCalledTimes(1);
 
     // While the push hangs, fire a config-change to disable the extension.
-    // handleConfigChange's shutdown branch synchronously clears lastWord,
-    // recentWords, and pinnedWord (extension.ts:509-522).
+    // handleConfigChange's shutdown branch synchronously clears
+    // state.lastWord.
     __setConfig({ 'claudeSpinner.enabled': false });
     // eslint-disable-next-line @typescript-eslint/ban-ts-comment
     // @ts-expect-error mock module
     (await import('vscode')).__emitConfigChange(['claudeSpinner']);
     await Promise.resolve();
 
-    // Now resolve the in-flight push. Its post-await guard at line 147
-    // must observe !config.enabled and bail before lines 169-171 touch state.
+    // Now resolve the in-flight push. Its post-await guard at line 148
+    // must observe !config.enabled and bail before lines 170-172 touch state.
     instances[0].user!.setActivity.mockImplementation(() => Promise.resolve());
     resolvePush!();
     await vi.advanceTimersByTimeAsync(100);
