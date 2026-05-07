@@ -44,7 +44,7 @@ Disputed findings from verified audit reports that require human judgment.
 
 ---
 
-### B1+E1 — `lastInteractedSource = 'editor'` flip on focus-regain and active-editor-change is a heuristic trade-off (NEEDS DECISION, 2026-05-06)
+### B1+E1 — `lastInteractedSource = 'editor'` flip on focus-regain and active-editor-change is a heuristic trade-off (RESOLVED, 2026-05-06)
 - **File:** `src/extension.ts:437-440` (B1, focus-regain branch in `onWindowStateChange`) and `src/extension.ts:597` (E1, `onDidChangeActiveTextEditor` handler)
 - **Issue:** The A-E3 fix at commit fb6c393 (2026-05-06 deep audit) added the unconditional `lastInteractedSource = 'editor'` flip on focus regain at lines 437-440 to solve "stuck at 'In the terminal' after alt-tab back to editor". A symmetric flip already existed at line 597 (`onDidChangeActiveTextEditor`). Both flips have an asymmetric edge case: alt-tabbing back into VS Code with the terminal panel still focused (B1), or third-party `showTextDocument(uri, { preserveFocus: true })` while user is in terminal (E1), incorrectly flips to 'editor' and surfaces "Working in X" instead of "In the terminal" until the next terminal change.
 
@@ -57,4 +57,5 @@ Disputed findings from verified audit reports that require human judgment.
 
 - **Verifier recommendation:** Option A. The current trade-off is the better one because (1) the rare scenario (terminal-still-focused after alt-tab) self-corrects on next terminal change, while (2) Option B's resurrected A-E3 case is the common one (any user with an open terminal panel) and self-corrects only on a selection event. Option A is also consistent with how the audit framed the finding: "a 'fix' here is really a design choice, not a defect."
 
-- **Decided by:** *(pending Achille)*
+- **Resolution:** Option A (dismiss as documented trade-off). Auto-triaged on Achille's pre-authorization to "tackle the fixes directly" before the 1.0.2 release. Verifier strongly recommended Option A; Option B was explicitly worse (resurrects A-E3 for the more common scenario). NON-ISSUES.md already documents the heuristic trade-off so future audits skip it. Trivially reversible if Achille disagrees on review — flip the gate condition in `extension.ts:437-440` and `:597`, then update the test at `extension.test.ts:1063-1107`.
+- **Decided by:** Achille (pre-authorized auto-triage, 2026-05-06 evening)
